@@ -1,12 +1,21 @@
 = Build a bootc container image
-
-In this lab, you will transform the previous simple containerized application into a
-bootc container.
+In this step you will transform an application container to a bootc image.
 
 [#write]
-== (re)Write the Containerfile
+== Modify the Containerfile
 
-In the last lab, you have created a Containerfile with the following contents:
+NOTE: The `vim` editor is also available. Users of `vim` should already know the basics
+of opening, saving and exiting the editor. The instructions will reflect `nano` commands.
+
+Let's start with a typical application container and convert it to an image mode host. We'll start
+with something simple, a basic webserver running on the Red Hat Universal Base Image. To start the editor:
+
+[source,bash]
+----
+nano Containerfile
+----
+
+WARNING: Move the example Containerfile here as a starting point otherwise this won't make sense
 
 [source,dockerfile]
 ----
@@ -18,7 +27,12 @@ RUN echo "Hello Red Hat" > /var/www/html/index.html
 ENTRYPOINT /usr/sbin/httpd -DFOREGROUND
 ----
 
-You can now use your preferred text editor (`nano Containerfile`) to modify the contents as follows:
+A brief explanation of the key directives in the Containerfile above:
+
+  * `FROM` -> the base container image
+  * `ENTRYPOINT` -> the command that will be executed by default at run time
+
+You can now modify the contents as follows:
 
 [source,dockerfile]
 ----
@@ -26,23 +40,35 @@ FROM registry.redhat.io/rhel9/rhel-bootc:9.4
 
 RUN dnf install -y httpd
 RUN echo "Hello Red Hat" > /var/www/html/index.html
-RUN systemctl enable httpd.service
 
-ENTRYPOINT /usr/sbin/httpd -DFOREGROUND
+RUN systemctl enable httpd.service
 ----
 
-You can immediately observe two changes:
+After you've made those changes, you can save and exit with `Ctrl+x`, followed by
+the key `y` at the "Save modified buffer?" prompt and of course the `Enter` key at the prompt
+with the filename.
 
-  * the `FROM` field is now pointing to the Red Hat 9.4 base bootc image `registry.redhat.io/rhel9/rhel-bootc:9.4`
-  * `RUN systemctl enable httpd.service` is added in order to start the `httpd` service at host startup
+Let's talk about the effects of these two changes:
 
-You can also take note that installation of software is still done via `dnf` and of course `systemctl` works
-exactly like it would in a regular Linux system.
+  * The `FROM` field is now pointing to the Red Hat Enterprise Linux 9.4 bootc image instead of the UBI base image.
+  This new bootc image is a complete version of RHEL 9.4, much like the KVM image available on the Customer Portal. This 
+  image includes all of the OS components to run as a host as well as the new `bootc` commands. It is built using `ostree`
+  to facilitate the transactional updates that marks an image mode deployment from a package mode host.
+  
+  * `RUN systemctl enable httpd.service` replaces the `ENTRYPOINT` 
+  In order to start the `httpd` service at host startup as you use `systemctl` would with any other service. Since this 
+  will be a live host, there's not need to specify an executable that should be run when the container is started by
+  a container engine like podman. A default ENTRYPOINT of `/sbin/init` has been set on these base images so if you do 
+  start this as a container for testing, podman will run `systemd` as if it were booting a host.
 
 [#build]
 == Build the first bootc image
 
-Like with the previous simple application, you can build this container:
+As with application containers, you can build this container with standard tools:
+
+  * `--file Containerfile` -> what Containerfile to use for the build
+  * `--tag summit.registry/lb1506:latest` -> the "tag" or name of the resulting container in the format
+     <registry>/<repository>:<tag>
 
 [source,dockerfile]
 ----
@@ -60,9 +86,17 @@ NOTE: the above build command will be used throughout this workshop so we've
 added a `make build` command that can be used instead.
 
 [#test]
-== Test the containerized application
+== Test the bootc image as a container
 
-Now that the bootc container is ready, you can test it exactly like the previous one:
+Being able to make changes, build, and run an application locally is part of what is called
+the 'inner loop' of application development. One advantages of image mode, the use of 
+standard container tools brings this 'inner loop' capability to the design and development of 
+standard operating system builds. While not every nuance of system behavior can be tested
+this way (eg SELinux polices), this still can greatly reduce the amount of time usually 
+needed to test changes to configurations, software installations, etc.
+
+You can launch this bootc container like any other application container, `podman` will
+start `systemd` by default.
 
 [source,bash]
 ----
@@ -76,13 +110,13 @@ Test that it is running:
 podman ps | grep http-test
 ----
 
-The output of the command above should read like this:
+The output of the command above should resemble:
 
 ----
 06a7bdb1950b  summit.registry/lb1506:latest    15 seconds ago  Up 16 seconds  0.0.0.0:80->80/tcp    http-test
 ----
 
-And you can test the application:
+And you can test the webserver:
 
 [source,bash]
 ----
@@ -95,22 +129,33 @@ The result of the command above should be the "Hello Red Hat" string from the Co
 Hello Red Hat
 ----
 
+You can also `exec` into the container to see what's inside if you'd like. Once you're done 
+testing, go ahead and stop the running container:
+
+----
+podman stop http-test
+----
+
+
 You should preserve this image by tagging it:
 
 ----
 podman tag summit.registry/lb1506:latest summit.registry/lb1506:bootc
 ----
 
-And pushing it to the local registry:
+== Distributing the bootc image
+
+Now that we have a full operating system in a standard OCI container image, we can use
+standard container registries to host and distribute our OS images. The only atypical things
+we've done so far is what's in the base image. How we add software or files to the image
+is the same as any other application container. The special sauce of `bootc` comes when a host
+is running.
+
+We have a registry available within the lab environment we can push our image to:
 
 ----
 podman push summit.registry/lb1506:bootc
 ----
 
-You should also stop the running container:
-
-----
-podman stop http-test
-----
-
-The resulting container looks and behaves exactly like the previous one, how can it be installed on a virtual machine?
+You've built and tested your first bootc image, and it's now published for use. How do we 
+get from here to a running system?

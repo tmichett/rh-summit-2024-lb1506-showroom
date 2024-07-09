@@ -1,19 +1,15 @@
 = Updating bootc systems
 
-In this lab, you will learn how to update bootc hosts and rollback if needed.
+In this lab, you will learn how to provide updates to bootc hosts and rollback if needed.
 
 [#update-container]
 == Updating the container image
 
-On the host system (make sure the prompt shows `[lab-user@hypervisor edge-os]$`), you can now edit the `Containerfile` with the following contents:
+On the host system (make sure the prompt shows `[lab-user@hypervisor rh-summit-2024-lb1506]$`), you can now edit the `Containerfile` with the following contents:
 
 [source,dockerfile]
 ----
 FROM registry.redhat.io/rhel9/rhel-bootc:9.4
-
-RUN dnf install -y httpd
-RUN echo "Hello Red Hat Summit 2024" > /var/www/html/index.html
-RUN systemctl enable httpd
 
 ADD certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf
 
@@ -21,11 +17,31 @@ ARG SSHPUBKEY
 ADD templates/30-auth-system.conf /etc/ssh/sshd_config.d/30-auth-system.conf
 RUN mkdir -p /usr/ssh
 RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys
+
+RUN dnf install -y httpd
+RUN echo "Hello Red Hat" > /var/www/html/index.html
+RUN systemctl enable httpd
 ----
 
-Please note this is the last used Containerfile and we have added "Summit 2024" to the index.html file.
+Please notice the top part is still the httpd server we started this workshop with, but there are now 
+a couple of new lines:
 
-You can now rebuild the container (make sure you have included the `--build-arg`):
+  * `ADD certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf` -> will allow us to pull container images without TLS verification and is only necessary in this dev environment with self signed certificates for the registry.
+  * `ARG SSHPUBKEY` -> adds a new build-time argument for `podman` to be used as the public ssh key
+  * `ADD templates/30-auth-system.conf /etc/ssh/sshd_config.d/30-auth-system.conf` -> add configuration for ssh to take authorization keys from the usual HOMEDIR path *and* from `/usr/ssh/root.keys`
+
++
+The contents of this file is
+
++
+----
+AuthorizedKeysFile /usr/ssh/%u.keys .ssh/authorized_keys .ssh/authorized_keys2
+----
+
+  * `RUN mkdir -p /usr/ssh` -> create the new keys directory
+  * `RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys` -> write the build time argument as the ssh key for the `root` user
+
+You can now build the new container image with with the following command:
 
 ----
 podman build --build-arg SSHPUBKEY="$(cat ~/.ssh/id_rsa.pub)" --file Containerfile --tag summit.registry/lb1506:bootc-auth

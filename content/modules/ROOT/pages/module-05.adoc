@@ -1,3 +1,5 @@
+WARNING: extra credit exercise, don't break the flow to show an alternate install method
+
 = Deploying a bootc virtual machine with Anaconda
 
 In this lab you will learn the basics of deploying a bootc image using Anaconda and an

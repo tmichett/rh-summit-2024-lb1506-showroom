@@ -1,13 +1,22 @@
-= Building a very simple containerized application
+WARNING: DELETE ME
 
-In the first part of this workshop, you have done the initial setup. In this second part,
-you will build and test a very simple containerized application.
+= Building a very simple bootc image
 
 [#write]
 == Write the Containerfile
 
-You have to write and build a simple file called `Containerfile` using the provided `nano`
-editor with the following contents:
+NOTE: The more advanced `vim` editor is also available. Users of `vim` should already know the basics
+of opening, saving and exiting the editor. The instructions will reflect the `nano` commands.
+
+Let's start with a typical application container and convert it to an image mode host. We'll start
+with something simple, a basic webserver. To start the editor:
+
+[source,bash]
+----
+nano Containerfile
+----
+
+WARNING: Move the example Containerfile here as a starting point otherwise this won't make sense
 
 [source,dockerfile]
 ----
@@ -25,19 +34,7 @@ A brief explanation of the lines above:
   * `RUN` -> simple shell command that is run in the container at build time
   * `ENTRYPOINT` -> the command that will be executed by default at run time
 
-To start the editor:
 
-[source,bash]
-----
-nano Containerfile
-----
-
-And after you've entered the contents from above, you can save and exit with `Ctrl+x`, followed by
-the key `y` at the "Save modified buffer?" prompt and of course the `Enter` key at the prompt
-with the filename.
-
-NOTE: The more advanced `vim` editor is also available. Users of `vim` should already know the basics
-of opening, saving and exiting the editor.
 
 You can check your `Containerfile` file was properly saved by listing it's current contents:
 

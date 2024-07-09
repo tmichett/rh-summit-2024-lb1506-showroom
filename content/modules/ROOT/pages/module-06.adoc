@@ -1,3 +1,5 @@
+WARNING DELETE ME
+
 = Deploying a bootc container from inside a running system
 
 Bootc containers are self deploying and a novel method of installation involves transforming a regular
