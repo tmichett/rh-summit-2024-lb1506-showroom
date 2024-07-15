@@ -44,13 +44,13 @@ AuthorizedKeysFile /usr/ssh/%u.keys .ssh/authorized_keys .ssh/authorized_keys2
 You can now build the new container image with with the following command:
 
 ----
-podman build --build-arg SSHPUBKEY="$(cat ~/.ssh/id_rsa.pub)" --file Containerfile --tag summit.registry/lb1506:bootc-auth
+podman build --build-arg SSHPUBKEY="$(cat ~/.ssh/id_rsa.pub)" --file Containerfile --tag summit.registry/lb1506:bootc
 ----
 
 And make sure to push it to the registry:
 
 ----
-podman push summit.registry/lb1506:bootc-auth
+podman push summit.registry/lb1506:bootc
 ----
 
 [#update-vm]
@@ -62,19 +62,19 @@ The last virtual machine you have created during this workshop should still be r
 virsh --connect qemu:///system list
 ----
 
-And the output should containe a virtual machine called `regular`.
+And the output should containe a virtual machine called `qcow`.
 
 
 Now you can ssh into the virtual machine
 
 ----
-ssh root@regular-vm
+ssh lab-user@qcow-vm
 ----
 
 And check the bootc status:
 
 ----
-bootc status
+sudo bootc status
 ----
 
 The output should look like this:
@@ -87,7 +87,7 @@ metadata:
   name: host
 spec:
   image:
-    image: summit.registry/lb1506:bootc-auth
+    image: summit.registry/lb1506:bootc
     transport: registry
   bootOrder: default
 status:
@@ -95,27 +95,27 @@ status:
   booted:
     image:
       image:
-        image: summit.registry/lb1506:bootc-auth
+        image: summit.registry/lb1506:bootc
         transport: registry
-      version: 9.20240501.0
+      version: 9.20240707.0
       timestamp: null
-      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
+      imageDigest: sha256:da0fa085029428483c884845712e20785bcff14a54bda301f66310a13df2872a
     cachedUpdate: null
     incompatible: false
     pinned: false
     ostree:
-      checksum: 22b18bfa0e94fbe390379cb4bae150ebad85c8844e7b721179d26c1df636ce8e
+      checksum: 21d4df251895c2d84fff4301b734435f4971a5cac16c76d886b7848d939b73e3
       deploySerial: 0
   rollback: null
   rollbackQueued: false
   type: bootcHost
 ----
 
-Notice the `image: summit.registry/lb1506:bootc-auth`, which is the image you have just updated. That means you can directly trigger the update:
+Notice the `image: summit.registry/lb1506:bootc`, which is the image you have just updated. That means you can directly trigger the update:
 
 [source,bash]
 ----
-bootc update
+sudo bootc update
 ----
 
 The output should look something like this:
@@ -134,7 +134,7 @@ Now you can, like in Section 5, see the staged changes:
 
 [source,bash]
 ----
-bootc status
+sudo bootc status
 ----
 
 The output should look like:
@@ -208,16 +208,16 @@ Shortly after reboot, you should be able to see the update on the http applicati
 
 [source,bash]
 ----
-curl http://regular-vm
+curl http://qcow-vm
 ----
 
 And the output should be "Hello Red Hat Summit 2024"!
 
-You can now login back to the virtual machine:
+You can now login to the virtual machine with the newly added root credentials:
 
 [source,bash]
 ----
-ssh root@regular-vm
+ssh root@qcow-vm
 ----
 
 And check once again the status of bootc:
@@ -301,14 +301,14 @@ virtual machine and not the hypervisor (the prompt should look like `[root@regul
 
 [source,bash]
 ----
-sudo systemctl reboot
+systemctl reboot
 ----
 
 After the host is back up, you can notice the installation has reverted to the original "Hello Red Hat" version:
 
 [source,bash]
 ----
-curl http://regular-vm
+curl http://qcow-vm
 ----
 
 Congratulations, you have updated and rolled back the update on a container based operating system!

@@ -12,7 +12,7 @@ now edit the `Containerfile` with the following contents:
 
 [source,dockerfile]
 ----
-FROM summit.registry/lb1506:bootc-auth
+FROM summit.registry/lb1506:bootc
 
 RUN dnf install -y python3.11 git python3.11-pip make automake gcc gcc-c++
 RUN python3.11 -m pip install git+https://github.com/instructlab/instructlab.git@stable

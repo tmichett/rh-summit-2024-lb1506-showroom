@@ -147,10 +147,18 @@ virt-install --connect qemu:///system \
                 --osinfo rhel9-unknown \
                 --noautoconsole \
                 --noreboot
-virsh --connect qemu:///system start qcow-vm
+virsh --connect qemu:///system start qcow
 ----
 
-If `make vm-qcow` was successful, you should see the virtual machine running:
+If `make vm-qcow` was successful, you should see the final line of output like this:
+
+[source,bash]
+----
+Domain 'qcow' started
+
+----
+
+Check to make sure the virtual machine running:
 
 [source,bash]
 ----
@@ -183,6 +191,7 @@ NOTE: If the ssh key is not automatically picked up, use the password defined in
 
 Once you have logged in, you can inspect the bootc status (the password for `sudo` is `lb1506`):
 
+[source,bash]
 ----
 sudo bootc status
 ----

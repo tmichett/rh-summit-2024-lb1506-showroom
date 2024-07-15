@@ -12,7 +12,7 @@ First, let's start by cloning the helper scripts.
 
 [source,bash]
 ----
-git clone https://github.com/kwozyman/rh-summit-2024-lb1506
+git clone https://github.com/nzwulfin/rh-summit-2024-lb1506
 ----
 
 ...and changing our directory to the newly created one:
