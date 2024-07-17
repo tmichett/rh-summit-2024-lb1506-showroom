@@ -1,161 +1,247 @@
-= Build a bootc container image
-In this step you will transform an application container to a bootc image.
+= Deploy a virtual machine with bootc image
 
-[#write]
-== Modify the Containerfile
+In this lab, you will build a `qcow2` disk image from the bootc image and then launch
+a virtual machine using it. `qcow2` is a standard file format used by the Linux virtualization system.
 
-NOTE: The `vim` editor is also available. Users of `vim` should already know the basics
-of opening, saving and exiting the editor. The instructions will reflect `nano` commands.
+[#config]
+== Create the config for building the virtual machine image
 
-Let's start with a typical application container and convert it to an image mode host. We'll start
-with something simple, a basic webserver running on the Red Hat Universal Base Image. To start the editor:
+You may have noticed the bootc image we've created does not include any login credentials. Not a 
+typical concern for an application container, but as a host we will very likely need to interact
+at some point.
+
+Since we are defining an image to be shared by multiple hosts in multiple different environments,
+users and authentication is likely to be handled at the deployment stage, not the build stage.
+
+NOTE: There are cases where it may be useful for a user and credentials to be added to an image, 
+as a 'break glass' emergency login for example.
+
+To add a user during the conversion to a disk image, you need to create a JSON file with the credentials.
+This config file will be used by `bootc-image-builder` to customize the final disk image.
+
+A ssh key has been generated in the Setup section of this lab. You can view the public part like this:
 
 [source,bash]
 ----
-nano Containerfile
+cat ~/.ssh/id_rsa.pub
 ----
 
-WARNING: Move the example Containerfile here as a starting point otherwise this won't make sense
-
-[source,dockerfile]
-----
-FROM registry.access.redhat.com/ubi9/ubi
-
-RUN dnf install -y httpd
-RUN echo "Hello Red Hat" > /var/www/html/index.html
-
-ENTRYPOINT /usr/sbin/httpd -DFOREGROUND
-----
-
-A brief explanation of the key directives in the Containerfile above:
-
-  * `FROM` -> the base container image
-  * `ENTRYPOINT` -> the command that will be executed by default at run time
-
-You can now modify the contents as follows:
-
-[source,dockerfile]
-----
-FROM registry.redhat.io/rhel9/rhel-bootc:9.4
-
-RUN dnf install -y httpd
-RUN echo "Hello Red Hat" > /var/www/html/index.html
-
-RUN systemctl enable httpd.service
-----
-
-After you've made those changes, you can save and exit with `Ctrl+x`, followed by
-the key `y` at the "Save modified buffer?" prompt and of course the `Enter` key at the prompt
-with the filename.
-
-Let's talk about the effects of these two changes:
-
-  * The `FROM` field is now pointing to the Red Hat Enterprise Linux 9.4 bootc image instead of the UBI base image.
-  This new bootc image is a complete version of RHEL 9.4, much like the KVM image available on the Customer Portal. This 
-  image includes all of the OS components to run as a host as well as the new `bootc` commands. It is built using `ostree`
-  to facilitate the transactional updates that marks an image mode deployment from a package mode host.
-  
-  * `RUN systemctl enable httpd.service` replaces the `ENTRYPOINT` 
-  In order to start the `httpd` service at host startup as you use `systemctl` would with any other service. Since this 
-  will be a live host, there's not need to specify an executable that should be run when the container is started by
-  a container engine like podman. A default ENTRYPOINT of `/sbin/init` has been set on these base images so if you do 
-  start this as a container for testing, podman will run `systemd` as if it were booting a host.
-
-[#build]
-== Build the first bootc image
-
-As with application containers, you can build this container with standard tools:
-
-  * `--file Containerfile` -> what Containerfile to use for the build
-  * `--tag summit.registry/lb1506:latest` -> the "tag" or name of the resulting container in the format
-     <registry>/<repository>:<tag>
-
-[source,dockerfile]
-----
-podman build --file Containerfile --tag summit.registry/lb1506:latest
-----
-
-If the above command is succesful, the last two lines of the output should read like this:
+The output should look something like this (Example):
 
 ----
-Successfully tagged summit.registry/lb1506:latest
-f1bea10eb37acf2e78a9b01c6242110c1901adbaf40dbce479241c6c735c58da
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAuXnpoluye+KM+9tvIAdHf+F0IHh+K73tlcjEG8LJRB lab-user@hypervisor
 ----
 
-NOTE: the above build command will be used throughout this workshop so we've
-added a `make build` command that can be used instead.
+You can now create a file called `config-qcow2.json` with the following contents, replacing "SSHKEY" 
+in the `key` field with the contents of `~/.ssh/id_rsa.pub` from your system:
+
+[source,json]
+----
+{
+  "blueprint": {
+    "customizations": {
+      "user": [
+        {
+          "name": "lab-user",
+          "password": "lb1506",
+          "key": "SSHKEY",
+          "groups": [
+            "wheel"
+          ]
+        }
+      ]
+    }
+  }
+}
+----
+
+This configuration blueprint creates a user in the resulting virtual machine with the login `lab-user`, the password `lb1506` and the 
+ssh key of the user on the lab host.
+
+NOTE: For your convenience, a config file has already been generated with the ssh key for your lab host in `config/config-qcow2.json` so
+you can just use that with `cp config/config-qcow2.json config-qcow2.json`.
+
+[#create]
+== Create the virtual machine image
+
+First, you want to make sure the bootc image is available to the local registry:
+
+[source,bash]
+----
+skopeo inspect docker://summit.registry/lb1506:bootc | jq '.Digest'
+"sha256:655721ff613ee766a4126cb5e0d5ae81598e1b0c3bcf7017c36c4d72cb092fe9"
+----
+
+To convert from an OCI image to a disk image, we have a special version of image builder that has support for `bootc`. This 
+`bootc-image-builder` itself runs as a container, and as a result needs addtional Capabilities and to be run as `root`.
+
+Try to generate the image now:
+
+NOTE: This could take 5+ minutes to complete.
+[source,bash]
+----
+sudo podman run --rm --privileged \
+        --volume .:/output \
+        --volume ./config-qcow2.json:/config.json \
+        registry.redhat.io/rhel9/bootc-image-builder:latest \
+        --type qcow2 --config /config.json \
+        --tls-verify=false \
+        summit.registry/lb1506:bootc
+----
+
+A brief explanation of the arguments used for `podman` and `bootc-image-buider`:
+
+  * `--rm` -> do not keep the build container after execution finishes
+  * `--privileged` -> add capabilitiesrequired to build the image
+  * `--volume` -> podman will map these local directories or files to the container
+  * `registry.redhat.io/rhel9/bootc-image-builder:latest` -> the image builder container image
+
+From here, these arguments passed to `bootc-image-builder`
+
+  * `--type qcow2` -> the type of image to build
+  * `--config /config.json` -> the json configuration file used; please note this is relative to the container filesystem
+  * `--tls-verify=false` -> the registry we are running is local and it has self signed certificates; this flag would not be needed with `quay.io` for example
+  * `summit.registry/lb1506:bootc` -> the image we are trying to pack into qcow2
+
+Once this completes, you will find the image is the `qcow2/` directory:
+
+NOTE: For your convenience, this part of the exercise is automated by using the `make qcow CONTAINER=summit.registry/lb1506:bootc` command.
+
+[source,bash]
+----
+ls -lah qcow2/disk.qcow2
+----
+
+The output should be similar to:
+
+[source]
+----
+-rw-r--r--. 1 root root 945M May  2 06:10 qcow2/disk.qcow2
+----
+
+[#create-vm]
+== Create the virtual machine
+
+The creation of virtual machines is out of scope for this lab, so we have provided a convenience command in the Makeile.
+We've detailed the commnds being run so you can follow along with what is happening. If you like, feel free to run the 
+commands on your own instead of using the `make` target.  
+
+[source,bash]
+----
+make vm-qcow
+----
+
+For reference, commands executed in the Makefile are:
+
+[source,bash]
+----
+sudo cp qcow2/disk.qcow2 /var/lib/libvirt/images/summit/qcow-vm.qcow2
+virt-install --connect qemu:///system \
+                --name qcow \
+                --disk /var/lib/libvirt/images/summit/qcow-vm.qcow2 \
+                --import \
+                --network "network=summit-network,mac=de:ad:be:ef:01:03" \
+                --memory 4096 \
+                --graphics none \
+                --osinfo rhel9-unknown \
+                --noautoconsole \
+                --noreboot
+virsh --connect qemu:///system start qcow
+----
+
+If `make vm-qcow` was successful, you should see the final line of output like this:
+
+[source,bash]
+----
+Domain 'qcow' started
+
+----
+
+Check to make sure the virtual machine running:
+
+[source,bash]
+----
+virsh --connect qemu:///system list
+
+ Id   Name                State
+------------------------------------
+ 5    qcow-vm             running
+----
 
 [#test]
-== Test the bootc image as a container
+== Test and login to the virtual machine
 
-Being able to make changes, build, and run an application locally is part of what is called
-the 'inner loop' of application development. One advantages of image mode, the use of 
-standard container tools brings this 'inner loop' capability to the design and development of 
-standard operating system builds. While not every nuance of system behavior can be tested
-this way (eg SELinux polices), this still can greatly reduce the amount of time usually 
-needed to test changes to configurations, software installations, etc.
+Congratulations, you are running a bootc virtual machine!  Now that the virtual machine is up 
+and running, you can see if the webserver behaves as expected.
 
-You can launch this bootc container like any other application container, `podman` will
-start `systemd` by default.
+----
+curl http://qcow-vm
+----
+
+And the results should be the "Hello Red Hat" string defined in the Containerfile.
+
+You can now login to the virtual machine.
+
+----
+ssh lab-user@qcow-vm
+----
+
+NOTE: If the ssh key is not automatically picked up, use the password defined in the JSON file at the beginning of this lab (by default `lb1506`).
+
+Once you have logged in, you can inspect the bootc status (the password for `sudo` is `lb1506`):
 
 [source,bash]
 ----
-podman run --rm --name http-test --detach --publish 80:80 summit.registry/lb1506:latest
+sudo bootc status
 ----
 
-Test that it is running:
+The output should look similar to this:
+
+[source,yaml]
+----
+apiVersion: org.containers.bootc/v1alpha1
+kind: BootcHost
+metadata:
+  name: host
+spec:
+  image:
+    image: summit.registry/lb1506:bootc
+    transport: registry
+  bootOrder: default
+status:
+  staged: null
+  booted:
+    image:
+      image:
+        image: summit.registry/lb1506:bootc
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
+    cachedUpdate: null
+    incompatible: false
+    pinned: false
+    ostree:
+      checksum: 008e3bef805f25224f591240627bea2a06ce12b25494836c2dab7d1b0a1691a8
+      deploySerial: 0
+  rollback: null
+  rollbackQueued: false
+  type: bootcHost
+----
+
+From the output of `bootc status`, find the block that starts with `booted`. This block provides information about 
+the current image in use. You can see that image is listed as `summit.registry/lb1506:bootc`.
+
+You can explore the virtual machine before moving on to the next section:
+
+  * `systemctl status httpd` -> see the `httpd` service we have enabled in the Containerfile
+  * `cat /var/www/html/index.html` -> see the index.html file we have created in the Containerfile
+
+Before proceeding, make sure you have logged out of the virtual machine:
 
 [source,bash]
 ----
-podman ps | grep http-test
+logout
 ----
 
-The output of the command above should resemble:
-
-----
-06a7bdb1950b  summit.registry/lb1506:latest    15 seconds ago  Up 16 seconds  0.0.0.0:80->80/tcp    http-test
-----
-
-And you can test the webserver:
-
-[source,bash]
-----
-curl http://localhost/
-----
-
-The result of the command above should be the "Hello Red Hat" string from the Containerfile:
-
-----
-Hello Red Hat
-----
-
-You can also `exec` into the container to see what's inside if you'd like. Once you're done 
-testing, go ahead and stop the running container:
-
-----
-podman stop http-test
-----
-
-
-You should preserve this image by tagging it:
-
-----
-podman tag summit.registry/lb1506:latest summit.registry/lb1506:bootc
-----
-
-== Distributing the bootc image
-
-Now that we have a full operating system in a standard OCI container image, we can use
-standard container registries to host and distribute our OS images. The only atypical things
-we've done so far is what's in the base image. How we add software or files to the image
-is the same as any other application container. The special sauce of `bootc` comes when a host
-is running.
-
-We have a registry available within the lab environment we can push our image to:
-
-----
-podman push summit.registry/lb1506:bootc
-----
-
-You've built and tested your first bootc image, and it's now published for use. How do we 
-get from here to a running system?
+The prompt should read `[lab-user@hypervisor rh-summit-2024-lb1506]$` before continuing.

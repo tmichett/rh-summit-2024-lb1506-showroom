@@ -1,0 +1,53 @@
+= Creating an inner loop for system design
+[#test]
+== Test the bootc image as a container
+
+Being able to make changes, build, and run an application locally is part of what is called
+the 'inner loop' of application development. One advantages of image mode, the use of 
+standard container tools brings this 'inner loop' capability to the design and development of 
+standard operating system builds. While not every nuance of system behavior can be tested
+this way (eg SELinux polices), this still can greatly reduce the amount of time usually 
+needed to test changes to configurations, software installations, etc.
+
+You can launch this bootc container like any other application container, `podman` will
+start `systemd` by default. Using `--detach` will help ensure that `systemd` is PID1 and 
+the bootc image will initialize as intended when running as a host.
+
+[source,bash]
+----
+podman run --rm --name http-test --detach --publish 80:80 summit.registry/lb1506:latest
+----
+
+Test that it is running:
+
+[source,bash]
+----
+podman ps | grep http-test
+----
+
+The output of the command above should resemble:
+
+----
+06a7bdb1950b  summit.registry/lb1506:latest    15 seconds ago  Up 16 seconds  0.0.0.0:80->80/tcp    http-test
+----
+
+And you can test the webserver:
+
+[source,bash]
+----
+curl http://localhost/
+----
+
+The result of the command above should be the "Hello Red Hat" string from the Containerfile:
+
+----
+Hello Red Hat
+----
+
+You can also `exec` into the container to see what's inside if you'd like. Once you're done 
+testing, go ahead and stop the running container:
+
+[source,bash]
+----
+podman stop http-test
+----

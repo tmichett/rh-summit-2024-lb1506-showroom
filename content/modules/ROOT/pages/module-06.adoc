@@ -1,230 +1,97 @@
-WARNING DELETE ME
+= Repurposing a bootc host
 
-= Deploying a bootc container from inside a running system
+In this final lab, you will learn how to easily repurpose a bootc host and you
+will explore creating new images from your new base image. The `rhel-bootc` image 
+provided is intended as a starting point for you to create standard builds that can 
+be reused to support your workloads and your environments.
 
-Bootc containers are self deploying and a novel method of installation involves transforming a regular
-Linux host into a bootc backed host.
+[#write-containerfiles]
+== Write advanced containerfiles
 
-
-[#create-bootc]
-== Add authentication method to Containerfile
-
-When using this method of deployment, passwords and/or ssh keys need to be added directly to the container image. You
-need to edit the `Containerfile` to the following:
+On the host system (make sure the prompt shows `[lab-user@hypervisor edge-os]$`), you can
+now edit the `Containerfile` with the following contents:
 
 [source,dockerfile]
 ----
-FROM registry.redhat.io/rhel9/rhel-bootc:9.4
+FROM summit.registry/lb1506:bootc
 
-RUN dnf install -y httpd
-RUN echo "Hello Red Hat" > /var/www/html/index.html
-RUN systemctl enable httpd
+RUN dnf install -y python3.11 git python3.11-pip make automake gcc gcc-c++
+RUN python3.11 -m pip install git+https://github.com/instructlab/instructlab.git@stable
 
-ADD certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf
-
-ARG SSHPUBKEY
-ADD templates/30-auth-system.conf /etc/ssh/sshd_config.d/30-auth-system.conf
-RUN mkdir -p /usr/ssh
-RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys
-
-ENTRYPOINT /usr/sbin/httpd -DFOREGROUND
+RUN mkdir -p /etc/ilab
+WORKDIR /etc/ilab
+RUN ilab init --non-interactive
+RUN ilab --config /etc/ilab/config.yaml download
 ----
 
-Please notice the top part is still the httpd server we started this workshop with, but there are now 
-a couple of new lines:
+Please note for this image you are starting with the bootc image you built
+in the previous labs. This means all the previous customizations are kept and
+you are just adding on top of it.
 
-  * `ADD certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf` -> will allow us to pull container images without TLS verification and is only necessary in this dev environment with self signed certificates for the registry.
-  * `ARG SSHPUBKEY` -> adds a new build-time argument for `podman` to be used as the public ssh key
-  * `ADD templates/30-auth-system.conf /etc/ssh/sshd_config.d/30-auth-system.conf` -> add configuration for ssh to take authorization keys from the usual HOMEDIR path *and* from `/usr/ssh/root.keys`
+The extra commands added are installing Red Hat and IBM's AI inference engine
+and also downloading a simple LLM model.
 
-+
-The contents of this file is
-
-+
-----
-AuthorizedKeysFile /usr/ssh/%u.keys .ssh/authorized_keys .ssh/authorized_keys2
-----
-
-  * `RUN mkdir -p /usr/ssh` -> create the new keys directory
-  * `RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys` -> write the build time argument as the ssh key for the `root` user
-
-You can now build the new container image with with the following command:
+You can now build the image:
 
 [source,bash]
 ----
-podman build --build-arg SSHPUBKEY="$(cat  ~/.ssh/id_rsa.pub)" --file Containerfile --tag summit.registry/lb1506:bootc-auth
+podman build --file Containerfile --tag summit.registry/lb1506:bootc-ai
 ----
 
-Please take note of the `--build-arg SSHPUBKEY="$(cat  ~/.ssh/id_rsa.pub)"` argument, which replaces `${SSHPUBKEY}` in the Containerfile with 
-the pregenerated ssh key stored in the file `~/.ssh/id_rsa.pub`.
-
-If the build command was successful, make sure to push the new container image to our local registry:
+And of course push it to the local registry:
 
 [source,bash]
 ----
-podman push summit.registry/lb1506:bootc-auth
+podman push summit.registry/lb1506:bootc-ai
 ----
 
-[#create-vm]
-== Creating the classic Linux host
+[#build]
+== Build and push the image
 
-In this part you need to create a "regular" Linux virtual machine. The exact steps for creating a
-virtual machine are out of scope for this workshop, but you have a ready made script to do just that:
+You can now login to the last used virtual machine:
 
 [source,bash]
 ----
-make vm-regular
+ssh root@qcow-vm
 ----
 
-The command above will download and start a CentOS Stream 9 virtual machine and inject it with the already generated
-ssh key.
+[switch-run]
+== Switch and test the image
 
-You can now check the virtual machine has been created:
+After the new container image has been pushed to the local registry,
+you can `switch` the bootc image to the ai one:
 
 [source,bash]
 ----
-virsh --connect qemu:///system list
+bootc switch summit.registry/lb1506:bootc-ai
 ----
 
-The output should contain a virtual machine called `regular`.
-
-Before moving forward, you can quickly check that the new virtual machine is *not* running the http application:
-
-----
-curl http://regular-vm
-----
-
-The above command should fail.
-
-[#bootc-deploy]
-== Selfdeploying the bootc container
-
-Having created the `regular` virtual machine, you can now ssh into it:
-
-[source,bash]
-----
-ssh root@regular-vm
-----
-
-Before moving forward, you can explore this regular virtual machine:
-
-  * `bootc status` -> should fail as there is no `bootc` commmand
-  * `cat /etc/os-release` -> should show you a standard CentOS Stream 9 host
-
-Now, inside the virtual machine, you can use `podman` to pull the bootc container:
-
-[source,bash]
-----
-podman pull summit.registry/lb1506:bootc-auth
-----
-
-And you can now use the container image to self deploy!
-
-[source,bash]
-----
-podman run --rm --privileged \
-        --pid=host --security-opt label=type:unconfined_t \
-        --volume /dev:/dev \
-        --volume /var/lib/containers:/var/lib/containers \
-        --volume /:/target \
-        --entrypoint bootc \
-        summit.registry/lb1506:bootc-auth \
-        install to-filesystem --skip-fetch-check --replace=alongside /target
-----
-
-The output of the previous command should like like this:
-
-----
-Installing image: docker://summit.registry/lb1506:bootc-auth
-Digest: sha256:783522458bb01c7c9870f03b21cbad7497edbb5e95fc59d7a2c3ada7141929fa
-Initializing ostree layout
-Initializing sysroot
-ostree/deploy/default initialized as OSTree stateroot
-Deploying container image
-Deployment complete
-Running bootupctl to install bootloader
-Installed: grub.cfg
-Installation complete!
-----
-
-If the deployment was successful, you can now reboot the virtual machine and login to the new system! Before doing so,
-please make sure you are logged in to the virtual machine and not the hypervisor (the prompt should look like `[root@regular-vm ~]#`):
-
+As usual, after the command is done you need to reboot the virtual machine
+for the changes to take effect. Before doing that, please make sure you are logged in to the
+virtual machine and not the hypervisor (the prompt should look like `[root@regular-vm ~]#`):
 
 [source,bash]
 ----
 systemctl reboot
 ----
 
-Before logging in to the new virtual machine, you can check if the http application is already working:
-
-----
-curl http://regular-vm
-----
-
-After a brief moment, you should be able to log back into the (now) bootc system:
+After a short while, you can log back in to the virtual machine and check the bootc status:
 
 [source,bash]
 ----
-ssh-keygen -R regular-vm
-ssh root@regular-vm
-----
-
-Like for the first virtual machine, you can now check the bootc status:
-
-[source,bash]
-----
+ssh root@qcow-vm
 bootc status
 ----
 
-The output should look like this:
-
-[source,yaml]
-----
-apiVersion: org.containers.bootc/v1alpha1
-kind: BootcHost
-metadata:
-  name: host
-spec:
-  image:
-    image: summit.registry/lb1506:bootc-auth
-    transport: registry
-  bootOrder: default
-status:
-  staged: null
-  booted:
-    image:
-      image:
-        image: summit.registry/lb1506:bootc-auth
-        transport: registry
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 22b18bfa0e94fbe390379cb4bae150ebad85c8844e7b721179d26c1df636ce8e
-      deploySerial: 0
-  rollback: null
-  rollbackQueued: false
-  type: bootcHost
-----
-
-Congratulations, you have successfully deployed and booted a bootc container on a running host!
-
-And the `httpd` service is running. We can verify that we get "Hello Red Hat" when curling the VM:
+Your virtual machine is now ready to answer simple questions!
 
 [source,bash]
 ----
-curl http://regular-vm
+cd /etc/ilab/config.yml
+ilab --config /etc/ilab/config.yml chat
 ----
 
-Before proceeding, make sure you have logged out of the virtual machine:
+Please note the AI model is completely embedded in the container image and has been transferred
+at system upgrade.
 
-[source,bash]
-----
-logout
-----
-
-The prompt should read `[lab-user@hypervisor rh-summit-2024-lb1506]$` before continuing.
+Congratulations for completing LB 1506 and thank you for attending!

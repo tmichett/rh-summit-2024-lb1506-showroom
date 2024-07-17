@@ -1,202 +1,131 @@
-= Deploy a bootc virtual machine with prebuilt image
+= Updating bootc systems
 
-In this lab, you will build a `qcow2` disk image out of the bootc image and then boot
-a virtual machine using it.
+In this lab, you will learn how to provide updates to bootc hosts and rollback if needed. 
 
-`qcow2` is a standard file format used by the Linux virtualization system.
+[#update-container]
+== Updating the container image
 
-[#config]
-== Create the config for building the virtual machine image
+We've created our first system but there are a few things that might be missing we typically 
+do to our systems. Not requiring a password every time we use sudo might be something we allow 
+admins to do. We may also need to put notices on logins or present info in the MOTD. Let's make 
+some changes to how the system behaves. While we're at it, lets update the index page too.
 
-You may have noticed the bootc image we've created does not include any login credentials. Not a 
-typical concern for an application container, but as a host we will very likely need to interact
-at some point.
+First, let's set up a directory structure that mimics `/etc` on our running host and create the 
+files we need inside it. This allows us to add all the configs at once with a single command and in 
+a single layer of the image.
 
-Since we are defining an image to be shared by multiple hosts in multiple different environments,
-users and authentication is likely to be handled at the deployment stage, not the build stage.
-
-NOTE: There are cases where it may be useful for a user and credentials to be added to an image, 
-as a 'break glass' emergency login for example.
-
-To add a user during the conversion to a disk image, you need to create a JSON file with the credentials.
-This config file will be used by `bootc-image-builder` to customize the final disk image.
-
-A ssh key has been generated in the Setup section of this lab. You can view the public part like this:
+NOTE: This is a local directory, relative to the Containerfile, not the system `/etc/`.
 
 [source,bash]
 ----
-cat ~/.ssh/id_rsa.pub
+mdkir -p etc/sudoers.d
 ----
 
-The output should look something like this (Example):
+Since the issue and motd files live in the top level of `/etc`, that one command creates all the paths 
+we need for this exercise. RHEL supports drop-in directories for several services and applications, indlucing 
+`sudo` privileges. Drop-in support lets us add a file to a `<servicename>.d` directory rather than editing 
+the main configuration file. You might already be familiar with drop-in config files from working with Apache and 
+it's `/etc/httpd/conf.d/` directory.
 
-----
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAuXnpoluye+KM+9tvIAdHf+F0IHh+K73tlcjEG8LJRB lab-user@hypervisor
-----
 
-You can now create a file called `config-qcow2.json` with the following contents, replacing "SSHKEY" 
-in the `key` field with the contents of `~/.ssh/id_rsa.pub` from your system:
-
-[source,json]
+Let's address the sudoers password first, by allowing users in the wheel group to not need to enter their password.
+[source,bash]
 ----
-{
-  "blueprint": {
-    "customizations": {
-      "user": [
-        {
-          "name": "lab-user",
-          "password": "lb1506",
-          "key": "SSHKEY",
-          "groups": [
-            "wheel"
-          ]
-        }
-      ]
-    }
-  }
-}
+nano etc/sudoers.d/wheel
+---
+Add the following and save the file
+
+---
+# Enable passwordless sudo for the wheel group
+%wheel        ALL=(ALL)       NOPASSWD: ALL
 ----
 
-This configuration blueprint creates a user `lab-user` with the password `lb1506` and the ssh key in the generated virtual machine image.
+The banner to be shown when someone attempts to log in to the system:
+[source,bash]
+----
+nano etc/issue
+----
+Add the following and save the file
 
-NOTE: For your convenience, a config file has already been generated with the ssh key for your lab host in `config/config-qcow2.json` so
-you can just use that with `cp config/config-qcow2.json config-qcow2.json`.
+---
+You are accessing the bootc VM \n
+RHEL \v \r 
+----
 
-[#create]
-== Create the virtual machine image
+And finally our message of the day!
+[source,bash]
+----
+nano etc/motd
+----
+Add the following and save the file
 
-First, you want to make sure the bootc image is available to the local registry:
+---
+Welcome to the image mode lifestyle!
+----
+
+Now that we have our new configs, we can add them to the Coontainerfile and rebuild the image.
+
+[source,dockerfile]
+----
+
+FROM registry.redhat.io/rhel9/rhel-bootc:9.4
+
+COPY certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf
+
+ADD etc/ /etc
+
+RUN dnf install -y httpd
+RUN echo "Hello Red Hat Summit Connect 2024!!" > /var/www/html/index.html
+
+RUN systemctl enable httpd.service
+----
+
+If you aren't familiar, tHe `ADD` directive has some extra Capabilities over the `COPY` command we used for the SSL certs. Where 
+`COPY` only works on a single file, `ADD` can work on full directories or even unpack tar files. This can 
+be very useful when dealing with standard configs, but could make the Containerfile a little opaque if 
+folks are unfamilar with the syntax.
+
+We rebuild the image with our updates the same way we originally built it.
 
 [source,bash]
 ----
-skopeo inspect docker://summit.registry/lb1506:bootc | jq '.Digest'
-"sha256:655721ff613ee766a4126cb5e0d5ae81598e1b0c3bcf7017c36c4d72cb092fe9"
+podman build --file Containerfile --tag summit.registry/lb1506:bootc
 ----
 
-To convert from an OCI image to a disk image, we have a special version of image builder that has support for `bootc`. This 
-`bootc-image-builder` itself runs as a container, and as a result needs addtional Capabilities and to be run as root.
-
-Try to generate the image now:
-
-NOTE: This could take 5+ minutes to complete.
-[source,bash]
-----
-sudo podman run --rm --privileged \
-        --volume .:/output \
-        --volume ./config-qcow2.json:/config.json \
-        registry.redhat.io/rhel9/bootc-image-builder:latest \
-        --type qcow2 --config /config.json \
-        --tls-verify=false \
-        summit.registry/lb1506:bootc
-----
-
-A brief explanation of the arguments used for `podman` and `bootc-image-buider`:
-
-  * `--rm` -> do not keep the build container after execution finishes
-  * `--privileged` -> add capabilitiesrequired to build the image
-  * `--volume` -> podman will map these local directories or files to the container
-  * `registry.redhat.io/rhel9/bootc-image-builder:latest` -> the image builder container image
-
-From here, these arguments passed to `bootc-image-builder`
-
-  * `--type qcow2` -> the type of image to build
-  * `--config /config.json` -> the json configuration file used; please note this is relative to the container filesystem
-  * `--tls-verify=false` -> the registry we are running is local and it has self signed certificates; this flag would not be needed with `quay.io` for example
-  * `summit.registry/lb1506:bootc` -> the image we are trying to pack into qcow2
-
-Once this completes, you will find the image is the `qcow2/` directory:
-
-NOTE: For your convenience, this part of the exercise is automated by using the `make qcow CONTAINER=summit.registry/lb1506:bootc` command.
+And make sure to push it to the registry:
 
 [source,bash]
 ----
-ls -lah qcow2/disk.qcow2
+podman push summit.registry/lb1506:bootc
 ----
 
-The output should be similar to:
+[#update-vm]
+== Updating the virtual machine
 
-[source]
-----
--rw-r--r--. 1 root root 945M May  2 06:10 qcow2/disk.qcow2
-----
-
-[#create-vm]
-== Create the virtual machine
-
-The creation of virtual machines is out of scope for this lab, so we have provided a convenience command in the Makeile.
-We've detailed the commnds being run so you can follow along with what is happening. If you like, feel free to run the
-`virt-install` command on your own instead of using the `make` target.  
-
-[source,bash]
-----
-make vm-qcow
-----
-
-For reference, the manual command is (*you do not need to run this command*):
-
-[source,bash]
-----
-sudo cp qcow2/disk.qcow2 /var/lib/libvirt/images/summit/qcow-vm.qcow2
-virt-install --connect qemu:///system \
-                --name qcow \
-                --disk /var/lib/libvirt/images/summit/qcow-vm.qcow2 \
-                --import \
-                --network "network=summit-network,mac=de:ad:be:ef:01:03" \
-                --memory 4096 \
-                --graphics none \
-                --osinfo rhel9-unknown \
-                --noautoconsole \
-                --noreboot
-virsh --connect qemu:///system start qcow
-----
-
-If `make vm-qcow` was successful, you should see the final line of output like this:
-
-[source,bash]
-----
-Domain 'qcow' started
-
-----
-
-Check to make sure the virtual machine running:
+The last virtual machine you have created during this workshop should still be running. You can check this with
 
 [source,bash]
 ----
 virsh --connect qemu:///system list
-
- Id   Name                State
-------------------------------------
- 5    qcow-vm             running
 ----
 
-[#test]
-== Test and login to the virtual machine
+And the output should containe a virtual machine called `qcow`.
 
-Congratulations, you are running a bootc virtual machine!  Now that the virtual machine is up 
-and running, you can see if the webserver behaves as expected.
+Now you can ssh into the virtual machine:
 
-----
-curl http://qcow-vm
-----
-
-And the results should be the "Hello Red Hat" string defined in the Containerfile.
-
-You can now login to the virtual machine.
-
+[source,bash]
 ----
 ssh lab-user@qcow-vm
 ----
 
-NOTE: If the ssh key is not automatically picked up, use the password defined in the JSON file at the beginning of this lab (by default `lb1506`).
-
-Once you have logged in, you can inspect the bootc status (the password for `sudo` is `lb1506`):
+Let's check the bootc status:
 
 [source,bash]
 ----
 sudo bootc status
 ----
 
-The output should look similar to this:
+The output should look like this:
 
 [source,yaml]
 ----
@@ -216,33 +145,137 @@ status:
       image:
         image: summit.registry/lb1506:bootc
         transport: registry
-      version: 9.20240501.0
+      version: 9.20240707.0
       timestamp: null
-      imageDigest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
+      imageDigest: sha256:da0fa085029428483c884845712e20785bcff14a54bda301f66310a13df2872a
     cachedUpdate: null
     incompatible: false
     pinned: false
     ostree:
-      checksum: 008e3bef805f25224f591240627bea2a06ce12b25494836c2dab7d1b0a1691a8
+      checksum: 21d4df251895c2d84fff4301b734435f4971a5cac16c76d886b7848d939b73e3
       deploySerial: 0
   rollback: null
   rollbackQueued: false
   type: bootcHost
 ----
 
-From the output of `bootc status`, find the block that starts with `booted`. This block provides information about 
-the current image in use. You can see that image is listed as `summit.registry/lb1506:bootc`.
-
-You can explore the virtual machine before moving on to the next section:
-
-  * `systemctl status httpd` -> see the `httpd` service we have enabled in the Containerfile
-  * `cat /var/www/html/index.html` -> see the index.html file we have created in the Containerfile
-
-Before proceeding, make sure you have logged out of the virtual machine:
+Notice the spec lists `image: summit.registry/lb1506:bootc`, which is the image you have just updated. 
+Also note that the `staged` section is `null` before we update the system. The `bootc update` command
+will download and prepare a detected update for use at the next boot. This means updates are offline, and 
+can be applied at any time. Changes will only take effect when the system reboots.
 
 [source,bash]
 ----
-logout
+sudo bootc update
 ----
 
-The prompt should read `[lab-user@hypervisor rh-summit-2024-lb1506]$` before continuing.
+The output should look something like this:
+
+----
+Loading usr/lib/ostree/prepare-root.conf
+Queued for next boot: summit.registry/lb1506:bootc-auth
+  Version: 9.20240501.0
+  Digest: sha256:c5a5bc63cc5d081c528c82a177d0c5eac996a16fa3a651f93d07825302ff5336
+Total new layers: 73    Size: 947.9 MB
+Removed layers:   6     Size: 2.3 kB
+Added layers:     6     Size: 2.2 kB
+----
+
+Now you can see the staged changes in addition to current running state of the host in `bootc status`. The SHA in the `staged`
+block should match the Digest from the output of the previous command `bootc update`:
+
+[source,bash]
+----
+sudo bootc status
+----
+
+The output should look like:
+
+[source,yaml]
+----
+apiVersion: org.containers.bootc/v1alpha1
+kind: BootcHost
+metadata:
+  name: host
+spec:
+  image:
+    image: summit.registry/lb1506:bootc
+    transport: registry
+  bootOrder: default
+status:
+  staged:
+    image:
+      image:
+        image: summit.registry/lb1506:bootc
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:c5a5bc63cc5d081c528c82a177d0c5eac996a16fa3a651f93d07825302ff5336
+    cachedUpdate: null
+    incompatible: false
+    pinned: false
+    ostree:
+      checksum: 20cbee67379b96ad9eb273c0f7a7cd3673644e2d8af13f8b7437afd12dc95070
+      deploySerial: 0
+  booted:
+    image:
+      image:
+        image: summit.registry/lb1506:bootc
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
+    cachedUpdate:
+      image:
+        image: summit.registry/lb1506:bootc
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:c5a5bc63cc5d081c528c82a177d0c5eac996a16fa3a651f93d07825302ff5336
+    incompatible: false
+    pinned: false
+    ostree:
+      checksum: 22b18bfa0e94fbe390379cb4bae150ebad85c8844e7b721179d26c1df636ce8e
+      deploySerial: 0
+  rollback: null
+  rollbackQueued: false
+  type: bootcHost
+----
+
+The last step for the change to take is to reboot the virtual machine. Before doing so, please make sure you are logged in to the
+virtual machine and not the hypervisor (the prompt should look like `[lab-user@qcow-vm ~]$`):
+
+[source,bash]
+----
+sudo systemctl reboot
+----
+
+[#testing]
+== Testing the changes
+
+Log into the system and and should see the greeting we created in `/etc/issue`. You should also see the message of the day 
+before you get a prompt after logging in successfully.
+
+[source,bash]
+----
+ssh lab-user@qcow-vm
+----
+
+We can check on our sudoers policy change as well. You shouldn't be prompted for you password:
+[source,bash]
+----
+sudo cat /etc/motd
+----
+
+
+What about the change to the index page?
+[source,bash]
+----
+curl http://localhost
+----
+
+The new text doesn't appear, and it's also not in the file on disk. This is expected based on 
+how `bootc` handles directories and image contents during changes.
+
+Stay logged into the VM to explore this in the next module.
+

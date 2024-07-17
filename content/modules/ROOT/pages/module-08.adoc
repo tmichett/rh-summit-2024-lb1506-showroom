@@ -1,72 +1,312 @@
-= Repurposing a bootc host
+= Updating bootc systems
+WARNING: extra credit exercise, don't break the flow to show an alternate user auth method
 
-In this final lab, you will learn how to easily repurpose a bootc host and you
-will attempt to build a more complex container image, which includes Red Hat's and IBM's
-instructlab AI inference engine and build it with two different data models.
 
-[#write-containerfiles]
-== Write advanced containerfiles
+[#update-container]
+== Updating the container image
 
-On the host system (make sure the prompt shows `[lab-user@hypervisor edge-os]$`), you can
-now edit the `Containerfile` with the following contents:
+On the host system (make sure the prompt shows `[lab-user@hypervisor rh-summit-2024-lb1506]$`), you can now edit the `Containerfile` with the following contents:
 
 [source,dockerfile]
 ----
-FROM summit.registry/lb1506:bootc
+FROM registry.redhat.io/rhel9/rhel-bootc:9.4
 
-RUN dnf install -y python3.11 git python3.11-pip make automake gcc gcc-c++
-RUN python3.11 -m pip install git+https://github.com/instructlab/instructlab.git@stable
+COPY certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf
 
-RUN mkdir -p /etc/ilab
-WORKDIR /etc/ilab
-RUN ilab init --non-interactive
-RUN ilab --config /etc/ilab/config.yaml download
+COPY templates/30-auth-system.conf /etc/ssh/sshd_config.d/30-auth-system.conf
+ARG SSHPUBKEY
+RUN mkdir -p /usr/ssh
+RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys
+
+RUN dnf install -y httpd
+RUN echo "Hello Red Hat" > /var/www/html/index.html
+RUN systemctl enable httpd
 ----
 
-Please note for this container you are using the last container image you build
-in the previous lab. This means all the previous customizations are kept and
-you are just adding on top of it.
+In addition to adding users during the creation of a host system, via `bootc-image-buider`, `cloud-init`, or some other means, we can also create users during
+the creation of the bootc image. This can be useful in certain cases where particular emergency users are needed in environments with limited connectivity. 
+The users and credentials would be tied to the image, which means controlling how secrets are used in the build are important to understand before going 
+down this path. In this case, we'll be using a fairly simple means to get the lab host user's credentials into the VM, but you will want to explore more 
+before making this choice in your own environment.
 
-The extra commands added are installing Red Hat and IBM's AI inference engine
-and also downloading a simple LLM model.
+The first thing we do in the updated Containerfile is add a configuration drop-in for SSHD.
 
-You can now build the image:
+  * `COPY templates/30-auth-system.conf /etc/ssh/sshd_config.d/30-auth-system.conf` -> add configuration for ssh to take authorization keys from the usual HOMEDIR path *and* from `/usr/ssh/root.keys`
+
++
+The contents of this file is
+
++
+----
+AuthorizedKeysFile /usr/ssh/%u.keys .ssh/authorized_keys .ssh/authorized_keys2
+----
+
+We will use some addtional build features of `podman` to get the credentials we want to embed in the image.
+
+  * `ARG SSHPUBKEY` -> adds a build-time argument for `podman` to be used as the public ssh key
+  * `RUN mkdir -p /usr/ssh` -> create the new keys directory
+  * `RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys` -> write the build time argument as the ssh key for the `root` user
+
+You can now build the new container image with with the following command, note the `--build-arg` argument and how we populate the variable:
 
 [source,bash]
 ----
-podman build --file Containerfile --tag summit.registry/lb1506:bootc-ai
+podman build --build-arg SSHPUBKEY="$(cat ~/.ssh/id_rsa.pub)" --file Containerfile --tag summit.registry/lb1506:bootc
 ----
 
-And of course push it to the local registry:
+And make sure to push it to the registry:
 
 [source,bash]
 ----
-podman push summit.registry/lb1506:bootc-ai
+podman push summit.registry/lb1506:bootc
 ----
 
-[#build]
-== Build and push the image
+[#update-vm]
+== Updating the virtual machine
 
-You can now login to the last used virtual machine:
+The last virtual machine you have created during this workshop should still be running. You can check this with
 
 [source,bash]
 ----
-ssh root@regular-vm
+virsh --connect qemu:///system list
 ----
 
-[switch-run]
-== Switch and test the image
+And the output should containe a virtual machine called `qcow`.
 
-After the new container image has been pushed to the local registry,
-you can `switch` the bootc image to the ai one:
+
+Now you can ssh into the virtual machine
 
 [source,bash]
 ----
-bootc switch summit.registry/lb1506:bootc-ai
+ssh lab-user@qcow-vm
 ----
 
-As usual, after the command is done you need to reboot the virtual machine
-for the changes to take effect. Before doing that, please make sure you are logged in to the
+And check the bootc status:
+
+[source,bash]
+----
+sudo bootc status
+----
+
+The output should look like this:
+
+[source,yaml]
+----
+apiVersion: org.containers.bootc/v1alpha1
+kind: BootcHost
+metadata:
+  name: host
+spec:
+  image:
+    image: summit.registry/lb1506:bootc
+    transport: registry
+  bootOrder: default
+status:
+  staged: null
+  booted:
+    image:
+      image:
+        image: summit.registry/lb1506:bootc
+        transport: registry
+      version: 9.20240707.0
+      timestamp: null
+      imageDigest: sha256:da0fa085029428483c884845712e20785bcff14a54bda301f66310a13df2872a
+    cachedUpdate: null
+    incompatible: false
+    pinned: false
+    ostree:
+      checksum: 21d4df251895c2d84fff4301b734435f4971a5cac16c76d886b7848d939b73e3
+      deploySerial: 0
+  rollback: null
+  rollbackQueued: false
+  type: bootcHost
+----
+
+Notice the spec lists `image: summit.registry/lb1506:bootc`, which is the image you have just updated. That means you can directly trigger the update.
+Also note that the `staged` section is `null` before we update the system.
+
+[source,bash]
+----
+sudo bootc update
+----
+
+The output should look something like this:
+
+----
+Loading usr/lib/ostree/prepare-root.conf
+Queued for next boot: summit.registry/lb1506:bootc-auth
+  Version: 9.20240501.0
+  Digest: sha256:c5a5bc63cc5d081c528c82a177d0c5eac996a16fa3a651f93d07825302ff5336
+Total new layers: 73    Size: 947.9 MB
+Removed layers:   6     Size: 2.3 kB
+Added layers:     6     Size: 2.2 kB
+----
+
+Now you can see the staged changes in addition to current running state of the host in `bootc status`. The SHA in the `staged`
+block should match the Digest from the output of the previous command `bootc update`:
+
+[source,bash]
+----
+sudo bootc status
+----
+
+The output should look like:
+
+[source,yaml]
+----
+apiVersion: org.containers.bootc/v1alpha1
+kind: BootcHost
+metadata:
+  name: host
+spec:
+  image:
+    image: summit.registry/lb1506:bootc-auth
+    transport: registry
+  bootOrder: default
+status:
+  staged:
+    image:
+      image:
+        image: summit.registry/lb1506:bootc-auth
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:c5a5bc63cc5d081c528c82a177d0c5eac996a16fa3a651f93d07825302ff5336
+    cachedUpdate: null
+    incompatible: false
+    pinned: false
+    ostree:
+      checksum: 20cbee67379b96ad9eb273c0f7a7cd3673644e2d8af13f8b7437afd12dc95070
+      deploySerial: 0
+  booted:
+    image:
+      image:
+        image: summit.registry/lb1506:bootc-auth
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
+    cachedUpdate:
+      image:
+        image: summit.registry/lb1506:bootc-auth
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:c5a5bc63cc5d081c528c82a177d0c5eac996a16fa3a651f93d07825302ff5336
+    incompatible: false
+    pinned: false
+    ostree:
+      checksum: 22b18bfa0e94fbe390379cb4bae150ebad85c8844e7b721179d26c1df636ce8e
+      deploySerial: 0
+  rollback: null
+  rollbackQueued: false
+  type: bootcHost
+----
+
+The last step for the change to take is to reboot the virtual machine. Before doing so, please make sure you are logged in to the
+virtual machine and not the hypervisor (the prompt should look like `[root@qcow-vm ~]#`):
+
+[source,bash]
+----
+sudo systemctl reboot
+----
+
+[#testing]
+== Testing the changes
+
+Shortly after reboot, you should be able to see the update on the http application:
+
+[source,bash]
+----
+curl http://qcow-vm
+----
+
+And the output should be "Hello Red Hat Summit 2024"!
+
+You can now login to the virtual machine with the newly added root credentials:
+
+[source,bash]
+----
+ssh root@qcow-vm
+----
+
+And check once again the status of bootc:
+
+[source,bash]
+----
+bootc status
+----
+
+The output should look like this:
+
+[source,yaml]
+----
+apiVersion: org.containers.bootc/v1alpha1
+kind: BootcHost
+metadata:
+  name: host
+spec:
+  image:
+    image: summit.registry/lb1506:bootc-auth
+    transport: registry
+  bootOrder: default
+status:
+  staged: null
+  booted:
+    image:
+      image:
+        image: summit.registry/lb1506:bootc-auth
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
+    cachedUpdate: null
+    incompatible: false
+    pinned: false
+    ostree:
+      checksum: 09221f57a440c585ebd5e77e7b2fe6d4a8d9fab083c2e62dad4e322c16ec6bed
+      deploySerial: 0
+  rollback:
+    image:
+      image:
+        image: summit.registry/lb1506:bootc-auth
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:d2f01ccf89c4ef6c4cc7d61982e4a83d3fc222c9028ab3eacc4ea0667df436e9
+    cachedUpdate:
+      image:
+        image: summit.registry/lb1506:bootc-auth
+        transport: registry
+      version: 9.20240501.0
+      timestamp: null
+      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
+    incompatible: false
+    pinned: false
+    ostree:
+      checksum: dbc49413600f67d5ba26dbf6f3bf441ea1824b5091a6e2038901263b3262651f
+      deploySerial: 0
+  rollbackQueued: false
+  type: bootcHost
+----
+
+Please notice the sections `booted` and `rollback`.
+
+Rollback are as simple as running one command. Let's try this now:
+
+[source,bash]
+----
+bootc rollback
+----
+
+The command should return very fast and the output looks like this:
+
+----
+bootfs is sufficient for calculated new size: 0 bytes
+Next boot: rollback deployment
+----
+
+As usual, a reboot is needed. Before doing it, please make sure you are logged in to the
 virtual machine and not the hypervisor (the prompt should look like `[root@regular-vm ~]#`):
 
 [source,bash]
@@ -74,23 +314,11 @@ virtual machine and not the hypervisor (the prompt should look like `[root@regul
 systemctl reboot
 ----
 
-After a short while, you can log back in to the virtual machine and check the bootc status:
+After the host is back up, you can notice the installation has reverted to the original "Hello Red Hat" version:
 
 [source,bash]
 ----
-ssh root@regular-vm
-bootc status
+curl http://qcow-vm
 ----
 
-Your virtual machine is now ready to answer simple questions!
-
-[source,bash]
-----
-cd /etc/ilab/config.yml
-ilab --config /etc/ilab/config.yml chat
-----
-
-Please note the AI model is completely embedded in the container image and has been transferred
-at system upgrade.
-
-Congratulations for completing LB 1506 and thank you for attending!
+Congratulations, you have updated and rolled back the update on a container based operating system!
