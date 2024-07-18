@@ -10,64 +10,56 @@ do to our systems. Not requiring a password every time we use sudo might be some
 admins to do. We may also need to put notices on logins or present info in the MOTD. Let's make 
 some changes to how the system behaves. While we're at it, lets update the index page too.
 
-First, let's set up a directory structure that mimics `/etc` on our running host and create the 
+First, let's set up a directory structure that mimics `/etc` on our lab host and create the 
 files we need inside it. This allows us to add all the configs at once with a single command and in 
 a single layer of the image.
 
-NOTE: This is a local directory, relative to the Containerfile, not the system `/etc/`.
+NOTE: This is a local directory, relative to the location of the Containerfile, not the system `/etc/`.
+These files are also provided in the `examples/update` directory. 
 
 [source,bash]
 ----
-mdkir -p etc/sudoers.d
+mkdir -p etc/sudoers.d
 ----
 
-Since the issue and motd files live in the top level of `/etc`, that one command creates all the paths 
-we need for this exercise. RHEL supports drop-in directories for several services and applications, indlucing 
+Since the motd file lives in the top level of `/etc`, that one command creates all the paths 
+we need for this exercise. RHEL supports drop-in directories for several services and applications, including 
 `sudo` privileges. Drop-in support lets us add a file to a `<servicename>.d` directory rather than editing 
 the main configuration file. You might already be familiar with drop-in config files from working with Apache and 
 it's `/etc/httpd/conf.d/` directory.
 
 
 Let's address the sudoers password first, by allowing users in the wheel group to not need to enter their password.
+
 [source,bash]
 ----
 nano etc/sudoers.d/wheel
----
+----
+
 Add the following and save the file
 
----
+----
 # Enable passwordless sudo for the wheel group
 %wheel        ALL=(ALL)       NOPASSWD: ALL
 ----
 
-The banner to be shown when someone attempts to log in to the system:
-[source,bash]
-----
-nano etc/issue
-----
-Add the following and save the file
+And let's provide a message of the day!
 
----
-You are accessing the bootc VM \n
-RHEL \v \r 
-----
-
-And finally our message of the day!
 [source,bash]
 ----
 nano etc/motd
 ----
+
 Add the following and save the file
 
----
+----
 Welcome to the image mode lifestyle!
 ----
 
-Now that we have our new configs, we can add them to the Coontainerfile and rebuild the image.
+Now that we have our new configs, we can add them to the Containerfile and rebuild the image.
 
 [source,dockerfile]
 ----
-
 FROM registry.redhat.io/rhel9/rhel-bootc:9.4
 
 COPY certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf
@@ -80,12 +72,14 @@ RUN echo "Hello Red Hat Summit Connect 2024!!" > /var/www/html/index.html
 RUN systemctl enable httpd.service
 ----
 
-If you aren't familiar, tHe `ADD` directive has some extra Capabilities over the `COPY` command we used for the SSL certs. Where 
-`COPY` only works on a single file, `ADD` can work on full directories or even unpack tar files. This can 
+If you aren't familiar, the `ADD` directive has some extra Capabilities over the `COPY` command we used for the SSL certs. Where 
+`COPY` only works on a single file, `ADD` can work on complete directories or even unpack tar files. This can 
 be very useful when dealing with standard configs, but could make the Containerfile a little opaque if 
 folks are unfamilar with the syntax.
 
-We rebuild the image with our updates the same way we originally built it.
+We rebuild the image with our updates the same way we originally built it. Since this is a rebuild, podman will reuse the 
+existing layers if there are no changes. This makes updates faster and take less space. Notice the push to the registry also 
+only pushes those layers that contain changes.
 
 [source,bash]
 ----
@@ -118,50 +112,7 @@ Now you can ssh into the virtual machine:
 ssh lab-user@qcow-vm
 ----
 
-Let's check the bootc status:
-
-[source,bash]
-----
-sudo bootc status
-----
-
-The output should look like this:
-
-[source,yaml]
-----
-apiVersion: org.containers.bootc/v1alpha1
-kind: BootcHost
-metadata:
-  name: host
-spec:
-  image:
-    image: summit.registry/lb1506:bootc
-    transport: registry
-  bootOrder: default
-status:
-  staged: null
-  booted:
-    image:
-      image:
-        image: summit.registry/lb1506:bootc
-        transport: registry
-      version: 9.20240707.0
-      timestamp: null
-      imageDigest: sha256:da0fa085029428483c884845712e20785bcff14a54bda301f66310a13df2872a
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 21d4df251895c2d84fff4301b734435f4971a5cac16c76d886b7848d939b73e3
-      deploySerial: 0
-  rollback: null
-  rollbackQueued: false
-  type: bootcHost
-----
-
-Notice the spec lists `image: summit.registry/lb1506:bootc`, which is the image you have just updated. 
-Also note that the `staged` section is `null` before we update the system. The `bootc update` command
-will download and prepare a detected update for use at the next boot. This means updates are offline, and 
+The `bootc update` command will download and prepare a detected update for use at the next boot. This means updates are offline, and 
 can be applied at any time. Changes will only take effect when the system reboots.
 
 [source,bash]
@@ -181,8 +132,9 @@ Removed layers:   6     Size: 2.3 kB
 Added layers:     6     Size: 2.2 kB
 ----
 
-Now you can see the staged changes in addition to current running state of the host in `bootc status`. The SHA in the `staged`
-block should match the Digest from the output of the previous command `bootc update`:
+Notice that `bootc update` provides information about the layers that have been modified. You can see the staged changes in 
+addition to current running state of the host in `bootc status`. The SHA in the `staged` block below should match the Digest 
+from the output of `bootc update`. 
 
 [source,bash]
 ----
@@ -253,8 +205,7 @@ sudo systemctl reboot
 [#testing]
 == Testing the changes
 
-Log into the system and and should see the greeting we created in `/etc/issue`. You should also see the message of the day 
-before you get a prompt after logging in successfully.
+Log into the system and and you should see the message of the day after logging in successfully.
 
 [source,bash]
 ----
@@ -267,11 +218,11 @@ We can check on our sudoers policy change as well. You shouldn't be prompted for
 sudo cat /etc/motd
 ----
 
-
 What about the change to the index page?
 [source,bash]
 ----
 curl http://localhost
+sudo cat /var/www/html/index.html
 ----
 
 The new text doesn't appear, and it's also not in the file on disk. This is expected based on 

@@ -8,7 +8,7 @@ In order to view the instructions locally, you need to clone this repository and
 
 [source,sh]
 ----
-git clone https://github.com/kwozyman/rh-summit-2024-lb1506-showroom
+git clone https://github.com/nzwulfin/rh-summit-2024-lb1506-showroom
 cd rh-summit-2024-lb1506-showroom
 podman run --rm --name antora -v $PWD:/antora:Z -p 8500:8080 -i -t ghcr.io/juliaaano/antora-viewer
 ----

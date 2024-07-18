@@ -1,74 +1,97 @@
 = Repurposing a bootc host
 
-In this final lab, you will learn how to easily repurpose a bootc host and you
-will explore creating new images from your new base image. The `rhel-bootc` image 
-provided is intended as a starting point for you to create standard builds that can 
-be reused to support your workloads and your environments.
+In addition to simplifying updates and providing native rollback, operating RHEL in image mode also 
+makes it simple to quickly change the purpose of a running system. This means experimenting with new 
+versions of application components or testing OS updates is as simple as applying any other image change.
+
+In this lab we'll explore this feature as well as expand on the ideas of layering common in the application 
+container world.
 
 [#write-containerfiles]
-== Write advanced containerfiles
+== Writing advanced containerfiles
+
+NOITE: All of the files for this exercise are provided in the examples folder and we'll be operating on those 
+directly. If a command doesn't operate, or a file doesn't look correct, check to make sure you are in the right 
+directory.
+
+Instead of just running a webserver, what if we needed to run WordPress instances, and our developers need
+those to be containerized? Image mode hosts are suitable for a wide range of use cases beyond directly hosting 
+applications, and acting as a container host is one of those. In fact, the work that preceeded image mode was 
+largely focused on the role of container hosting. 
 
 On the host system (make sure the prompt shows `[lab-user@hypervisor edge-os]$`), you can
-now edit the `Containerfile` with the following contents:
+change to the wordpress-quadlet directory to examine the new Containerfile.
+
+[source,bash]
+----
+cd examples/wordpress-quadlet
+nano Containerfile.wp
+----
 
 [source,dockerfile]
 ----
 FROM summit.registry/lb1506:bootc
 
-RUN dnf install -y python3.11 git python3.11-pip make automake gcc gcc-c++
-RUN python3.11 -m pip install git+https://github.com/instructlab/instructlab.git@stable
-
-RUN mkdir -p /etc/ilab
-WORKDIR /etc/ilab
-RUN ilab init --non-interactive
-RUN ilab --config /etc/ilab/config.yaml download
+ADD etc etc
+ADD usr usr
 ----
 
 Please note for this image you are starting with the bootc image you built
 in the previous labs. This means all the previous customizations are kept and
-you are just adding on top of it.
+you are just adding on top of it. 
 
-The extra commands added are installing Red Hat and IBM's AI inference engine
-and also downloading a simple LLM model.
+For an 'advanced` configuration, this doesn't have a lot of content, what's happening?
+
+Remember the `ADD` directive pulls full directories into the image at build time. So all of the work here is 
+somehow being done in `/usr` or `/etc`, let's see what's in there.
+
+The advanced part is the use of quadlets to run containers. A full description of quadlets is outside the scope 
+of this workshop, but in short, a quadlet is a way to run a container (or group of containers in this case) as a 
+systemd service. In `/etc/` we have a configuration file for the caddy server, a Golang HTTPS server, and a file of 
+environment variables to be passed to the quadlet.
+
+In `/usr/share/containers/systemd/` we have all of the files that define the quadlet. This the `.container` file defines 
+each of the containers for systemd to run. These are typical systemd unit files, aside from the `[Container]` block which 
+is unique to quadlets.
 
 You can now build the image:
 
 [source,bash]
 ----
-podman build --file Containerfile --tag summit.registry/lb1506:bootc-ai
+podman build --file Containerfile.wp --tag summit.registry/lb1506:bootc-wp
 ----
 
 And of course push it to the local registry:
 
 [source,bash]
 ----
-podman push summit.registry/lb1506:bootc-ai
+podman push summit.registry/lb1506:bootc-wp
 ----
 
 [#build]
 == Build and push the image
 
-You can now login to the last used virtual machine:
+You can now login to the virtual machine:
 
 [source,bash]
 ----
-ssh root@qcow-vm
+ssh lab-user@qcow-vm
 ----
 
 [switch-run]
 == Switch and test the image
 
 After the new container image has been pushed to the local registry,
-you can `switch` the bootc image to the ai one:
+you can `switch` the bootc image to the WordPress one:
 
 [source,bash]
 ----
-bootc switch summit.registry/lb1506:bootc-ai
+sudo bootc switch summit.registry/lb1506:bootc-wp
 ----
 
 As usual, after the command is done you need to reboot the virtual machine
 for the changes to take effect. Before doing that, please make sure you are logged in to the
-virtual machine and not the hypervisor (the prompt should look like `[root@regular-vm ~]#`):
+virtual machine and not the hypervisor (the prompt should look like `[lab-user@qcow-vm ~]#`):
 
 [source,bash]
 ----
@@ -79,19 +102,15 @@ After a short while, you can log back in to the virtual machine and check the bo
 
 [source,bash]
 ----
-ssh root@qcow-vm
-bootc status
+ssh lab-user@qcow-vm
+sudo bootc status
 ----
 
-Your virtual machine is now ready to answer simple questions!
+Your virtual machine is now ready to configure the WordPress install!
 
 [source,bash]
 ----
-cd /etc/ilab/config.yml
-ilab --config /etc/ilab/config.yml chat
+curl localhost
 ----
 
-Please note the AI model is completely embedded in the container image and has been transferred
-at system upgrade.
 
-Congratulations for completing LB 1506 and thank you for attending!

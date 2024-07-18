@@ -77,7 +77,7 @@ To convert from an OCI image to a disk image, we have a special version of image
 
 Try to generate the image now:
 
-NOTE: This could take 5+ minutes to complete.
+NOTE: This could take 2+ minutes to complete.
 [source,bash]
 ----
 sudo podman run --rm --privileged \
@@ -99,9 +99,9 @@ A brief explanation of the arguments used for `podman` and `bootc-image-buider`:
 From here, these arguments passed to `bootc-image-builder`
 
   * `--type qcow2` -> the type of image to build
-  * `--config /config.json` -> the json configuration file used; please note this is relative to the container filesystem
+  * `--config /config.json` -> the json configuration file used; please note this is relative to the container volume we added
   * `--tls-verify=false` -> the registry we are running is local and it has self signed certificates; this flag would not be needed with `quay.io` for example
-  * `summit.registry/lb1506:bootc` -> the image we are trying to pack into qcow2
+  * `summit.registry/lb1506:bootc` -> the bootc image we are unpacking into the qcow2 disk
 
 Once this completes, you will find the image is the `qcow2/` directory:
 
@@ -165,7 +165,7 @@ virsh --connect qemu:///system list
 
  Id   Name                State
 ------------------------------------
- 5    qcow-vm             running
+ 1    qcow                running
 ----
 
 [#test]
