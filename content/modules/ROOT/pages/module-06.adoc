@@ -32,6 +32,8 @@ nano Containerfile.wp
 ----
 FROM summit.registry/lb1506:bootc
 
+RUN dnf -y install lynx
+
 ADD etc etc
 ADD usr usr
 ----
@@ -82,7 +84,7 @@ ssh lab-user@qcow-vm
 == Switch and test the image
 
 After the new container image has been pushed to the local registry,
-you can `switch` the bootc image to the WordPress one:
+you can `switch` the bootc image to the WordPress one.
 
 [source,bash]
 ----
@@ -106,11 +108,19 @@ ssh lab-user@qcow-vm
 sudo bootc status
 ----
 
-Your virtual machine is now ready to configure the WordPress install!
+Since we built this image from our previous image, you weren't prompted for a password to use 
+sudo and you should have seen the message of the day on login.
+
+We don't have a GUI, but that's why we installe the Lynx browser
 
 [source,bash]
 ----
-curl localhost
+lynx localhost
 ----
 
+You should see the WordPress configuration dialog box. You can hit `Esc` and then `q` to quit lynx.
+
+Easy updates, rollbacks, and image switching are part of the core improvements to the operation of 
+image mode systems. But that's not the only advantages or design considerations when thinking about 
+how to best use image mode in your workflows. Let's explore a few more advanced topics next.
 
