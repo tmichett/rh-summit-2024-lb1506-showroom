@@ -27,6 +27,11 @@ change to the wordpress-quadlet directory to examine the new Containerfile.
 cd examples/wordpress-quadlet
 nano Containerfile.wp
 ----
+Using container tooling to create images let's us take advantage of layers and inheritance in our standard 
+build process. Different teams and work directly from images built by others, rather than by integrating after 
+the fact. Notice our `FROM` line is the image you've been working on throughout the lab. This means that every 
+bit of customization and software you've installed previously will be available on the host built from this new 
+definition. 
 
 [source,dockerfile]
 ----
@@ -38,10 +43,6 @@ ADD etc etc
 ADD usr usr
 ----
 
-Please note for this image you are starting with the bootc image you built
-in the previous labs. This means all the previous customizations are kept and
-you are just adding on top of it. 
-
 For an 'advanced` configuration, this doesn't have a lot of content, what's happening?
 
 Remember the `ADD` directive pulls full directories into the image at build time. So all of the work here is 
@@ -49,12 +50,15 @@ somehow being done in `/usr` or `/etc`, let's see what's in there.
 
 The advanced part is the use of quadlets to run containers. A full description of quadlets is outside the scope 
 of this workshop, but in short, a quadlet is a way to run a container (or group of containers in this case) as a 
-systemd service. In `/etc/` we have a configuration file for the caddy server, a Golang HTTPS server, and a file of 
-environment variables to be passed to the quadlet.
+systemd service. In `/etc/` we have a configuration file for the caddy server, a Golang HTTPS server acting as a proxy, 
+and a file of environment variables to be passed to the quadlet.
 
-In `/usr/share/containers/systemd/` we have all of the files that define the quadlet. This the `.container` file defines 
+In `/usr/share/containers/systemd/` we have all of the files that define the quadlet. The `.container` file defines 
 each of the containers for systemd to run. These are typical systemd unit files, aside from the `[Container]` block which 
 is unique to quadlets.
+
+[#build]
+== Build and push the image
 
 You can now build the image:
 
@@ -69,9 +73,6 @@ And of course push it to the local registry:
 ----
 podman push summit.registry/lb1506:bootc-wp
 ----
-
-[#build]
-== Build and push the image
 
 You can now login to the virtual machine:
 
@@ -97,21 +98,56 @@ virtual machine and not the hypervisor (the prompt should look like `[lab-user@q
 
 [source,bash]
 ----
-systemctl reboot
+sudo systemctl reboot
 ----
 
-After a short while, you can log back in to the virtual machine and check the bootc status:
+After a short while, you can log back in to the virtual machine:
 
 [source,bash]
 ----
 ssh lab-user@qcow-vm
-sudo bootc status
 ----
 
-Since we built this image from our previous image, you weren't prompted for a password to use 
-sudo and you should have seen the message of the day on login.
+[#layers]
+== Troubleshooting layered builds
 
-We don't have a GUI, but that's why we installe the Lynx browser
+What was that failure we were notified about? 
+
+[source,bash]
+----
+sudo systemctl status caddy.service
+sudo journalctl -t caddy
+----
+
+We weren't prompted for our sudo password, but it looks like our new caddy server couldn't bind to port 80 
+when it tried to start.  What's going on? The answer to both lies in the image we built from. 
+
+If you look at the original Containerfile, you'll recall we set Apache to start at boot:
+
+[source,dockerfile]
+----
+RUN systemctl enable httpd.service
+----
+
+If we check the status of Apache, we can see that it is indeed running and listening on port 80.
+
+[source,bash]
+----
+sudo systemctl status httpd.service
+----
+
+Since local changes to /etc are kept by `bootc` when changing images, httpd stayed enabled on 
+this new host as well. Let's disable it and restart caddy.
+
+[source,bash]
+----
+sudo systemctl disable --now httpd.service
+sudo systemctl restart caddy.service
+sudo systemctl status caddy.service
+----
+
+It looks like caddy started, let's check to see that it's passing requests to the WordPress 
+container in the quadlet. We don't have a GUI, but that's why we installed the Lynx browser
 
 [source,bash]
 ----
@@ -121,6 +157,10 @@ lynx localhost
 You should see the WordPress configuration dialog box. You can hit `Esc` and then `q` to quit lynx.
 
 Easy updates, rollbacks, and image switching are part of the core improvements to the operation of 
-image mode systems. But that's not the only advantages or design considerations when thinking about 
+image mode systems. Layering is an important part of the design of standard builds and can have some 
+downstream effects as well. Just like stacking configuration management, thinking through the idea of 
+layered builds can be powerful.
+
+But those aren't the only advantages or design considerations when thinking about 
 how to best use image mode in your workflows. Let's explore a few more advanced topics next.
 

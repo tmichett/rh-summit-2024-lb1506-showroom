@@ -1,9 +1,16 @@
 = Exploring strategies for users and credentials
-WARNING: extra credit exercise, don't break the flow to show an alternate user auth method
-
 
 [#update-container]
 == Updating the container image
+In the previous exercises, we've created users and added ssh keys at install time, either via a blueprint file 
+passed to `bootc-image-buider` or via kickstart to Anaconda. There are many ways and many reasons why handling 
+users would happen at any particular stage of the process, during deployment or after install via network authentication.
+
+In addition to adding users during the creation of a host system, via `bootc-image-buider`, `cloud-init`, or some other means, we can also create users during
+the creation of the bootc image. This can be useful in certain cases where particular emergency users are needed in environments with limited connectivity. 
+The users and credentials would be tied to the image, which means controlling how secrets are used in the build are important to understand before going 
+down this path. In this case, we'll be using a fairly simple means to get the lab host user's credentials into the VM, but you will want to explore more 
+before making this choice in your own environment.
 
 On the host system (make sure the prompt shows `[lab-user@hypervisor rh-summit-2024-lb1506]$`), you can now edit the `Containerfile` with the following contents:
 
@@ -21,24 +28,6 @@ RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys
 RUN dnf install -y httpd
 RUN echo "Hello Red Hat" > /var/www/html/index.html
 RUN systemctl enable httpd
-----
-
-In addition to adding users during the creation of a host system, via `bootc-image-buider`, `cloud-init`, or some other means, we can also create users during
-the creation of the bootc image. This can be useful in certain cases where particular emergency users are needed in environments with limited connectivity. 
-The users and credentials would be tied to the image, which means controlling how secrets are used in the build are important to understand before going 
-down this path. In this case, we'll be using a fairly simple means to get the lab host user's credentials into the VM, but you will want to explore more 
-before making this choice in your own environment.
-
-The first thing we do in the updated Containerfile is add a configuration drop-in for SSHD.
-
-  * `COPY templates/30-auth-system.conf /etc/ssh/sshd_config.d/30-auth-system.conf` -> add configuration for ssh to take authorization keys from the usual HOMEDIR path *and* from `/usr/ssh/root.keys`
-
-+
-The contents of this file is
-
-+
-----
-AuthorizedKeysFile /usr/ssh/%u.keys .ssh/authorized_keys .ssh/authorized_keys2
 ----
 
 We will use some addtional build features of `podman` to get the credentials we want to embed in the image.
@@ -64,15 +53,14 @@ podman push summit.registry/lb1506:bootc
 [#update-vm]
 == Updating the virtual machine
 
-The last virtual machine you have created during this workshop should still be running. You can check this with
+The virtual machine you have been working with during this workshop should still be running. You can check this with
 
 [source,bash]
 ----
 virsh --connect qemu:///system list
 ----
 
-And the output should containe a virtual machine called `qcow`.
-
+And the output should contain a virtual machine called `qcow`.
 
 Now you can ssh into the virtual machine
 
@@ -122,12 +110,11 @@ status:
   type: bootcHost
 ----
 
-Notice the spec lists `image: summit.registry/lb1506:bootc`, which is the image you have just updated. That means you can directly trigger the update.
-Also note that the `staged` section is `null` before we update the system.
+We can trigger the update and immediately reboot by using the `--apply` flag:
 
 [source,bash]
 ----
-sudo bootc update
+sudo bootc update --apply
 ----
 
 The output should look something like this:
@@ -140,88 +127,11 @@ Queued for next boot: summit.registry/lb1506:bootc-auth
 Total new layers: 73    Size: 947.9 MB
 Removed layers:   6     Size: 2.3 kB
 Added layers:     6     Size: 2.2 kB
-----
-
-Now you can see the staged changes in addition to current running state of the host in `bootc status`. The SHA in the `staged`
-block should match the Digest from the output of the previous command `bootc update`:
-
-[source,bash]
-----
-sudo bootc status
-----
-
-The output should look like:
-
-[source,yaml]
-----
-apiVersion: org.containers.bootc/v1alpha1
-kind: BootcHost
-metadata:
-  name: host
-spec:
-  image:
-    image: summit.registry/lb1506:bootc-auth
-    transport: registry
-  bootOrder: default
-status:
-  staged:
-    image:
-      image:
-        image: summit.registry/lb1506:bootc-auth
-        transport: registry
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:c5a5bc63cc5d081c528c82a177d0c5eac996a16fa3a651f93d07825302ff5336
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 20cbee67379b96ad9eb273c0f7a7cd3673644e2d8af13f8b7437afd12dc95070
-      deploySerial: 0
-  booted:
-    image:
-      image:
-        image: summit.registry/lb1506:bootc-auth
-        transport: registry
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
-    cachedUpdate:
-      image:
-        image: summit.registry/lb1506:bootc-auth
-        transport: registry
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:c5a5bc63cc5d081c528c82a177d0c5eac996a16fa3a651f93d07825302ff5336
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 22b18bfa0e94fbe390379cb4bae150ebad85c8844e7b721179d26c1df636ce8e
-      deploySerial: 0
-  rollback: null
-  rollbackQueued: false
-  type: bootcHost
-----
-
-The last step for the change to take is to reboot the virtual machine. Before doing so, please make sure you are logged in to the
-virtual machine and not the hypervisor (the prompt should look like `[root@qcow-vm ~]#`):
-
-[source,bash]
-----
-sudo systemctl reboot
+Rebooting system
 ----
 
 [#testing]
 == Testing the changes
-
-Shortly after reboot, you should be able to see the update on the http application:
-
-[source,bash]
-----
-curl http://qcow-vm
-----
-
-And the output should be "Hello Red Hat Summit 2024"!
 
 You can now login to the virtual machine with the newly added root credentials:
 

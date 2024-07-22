@@ -6,6 +6,12 @@ a virtual machine using it. `qcow2` is a standard file format used by the Linux 
 [#config]
 == Create the config for building the virtual machine image
 
+To deploy our bootc image as a host, we need to get the contents of the image onto a disk. While `bootc` 
+handles those mechanics, the actual creation of a phyiscal disk, virtual disk, or cloud image are handled 
+by other standard tools. For example, Anaconda can be used with bootc images for phyiscal or virtual hosts 
+like you would today, but without the `%packages` block we use today. In this lab, we'll use the `bootc-image-builder` 
+tool which can create various different disk image types and call `bootc` to deploy the image contents.
+
 You may have noticed the bootc image we've created does not include any login credentials. Not a 
 typical concern for an application container, but as a host we will very likely need to interact
 at some point.
@@ -131,7 +137,7 @@ commands on your own instead of using the `make` target.
 make vm-qcow
 ----
 
-For reference, commands executed in the Makefile are:
+*For reference*, commands executed in the Makefile are:
 
 [source,bash]
 ----

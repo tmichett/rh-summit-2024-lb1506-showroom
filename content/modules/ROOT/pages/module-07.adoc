@@ -3,9 +3,10 @@
 == Testing a bootc image as a container
 
 Being able to make changes, build, and run an application locally is part of what is called
-the 'inner loop' of application development. One advantages of image mode, the use of 
-standard container tools brings this 'inner loop' capability to the design and development of 
-standard operating system builds. 
+the 'inner loop' of application development. Containers had a big impact on making local 
+development and production run time look and feel identical, improving the inner loop for developers. 
+One advantages of image mode, the use of standard container tools brings this 'inner loop' capability 
+to the design and development of standard operating system builds. 
 
 While not every nuance of system behavior can be tested this way (eg SELinux polices), this still 
 can greatly reduce the amount of time usually needed to test changes to configurations, software installations, etc.
@@ -55,7 +56,6 @@ podman exec -it http-test /bin/bash
 
 We are now root inside the container. Look for the current index page in `/usr/share`
 
-
 [source,bash]
 ----
 cat /usr/share/www/index.html
@@ -79,6 +79,8 @@ It's still there but not being served because of the change to the Apache config
 ----
 grep DocumentRoot /etc/httpd/conf/httpd.conf
 ----
+
+
 
 Once you're done testing, go ahead and stop the running container:
 
