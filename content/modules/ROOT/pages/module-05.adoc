@@ -1,232 +1,27 @@
-= Deploying a bootc virtual machine with Anaconda
+= Rolling back bootc systems
 
-In this lab you will learn the basics of deploying a bootc image using Anaconda and an
-all in one `iso` image.
+In this lab, you'll look at rollbacks and examine how bootc handles directories on updates.
 
-Anaconda is the official Red Hat Enterprise Linux installer and it uses Kickstart as it's scripting language.
-Recently, Kickstart received a new command called `ostreecontainer`.
-
-[#build]
-== Building an installation iso with the bootc container
-
-In this lab, you will be using the CentOS Stream 9 minimal installation iso image
-as it is publicly available, but rest assured that the steps are identical for a Red Hat Enterprise Linux 9.4 `iso` image
-and even for Fedora 40 or newer.
-
-The image should have been already downloaded at the setup phase at the beginning of this workshop. You can check it exists
-by listing the file `/var/lib/libvirt/images/summit/rhel-boot.iso` as root:
-
+[#rollback-vm]
+== Rolling back changes to the virtual machine
+NOTE: You should still be logged into the bootc VM (the prompt should look like `[lab@qcow-vm ~]$`), if not log back in now.
 [source,bash]
 ----
-sudo ls -lah /var/lib/libvirt/images/summit/rhel-boot.iso
+ssh lab-user@qcow-vm
 ----
 
-If it is missing, you can redownload it by calling `make iso-download`.
+We have a new built-in option available to image mode systems that typically takes more preparation with package mode 
+operations: the rollback. 
 
-Next, make sure you have pushed the bootc container image to the local registry:
+Since `bootc` manages state on disk, we have the previous working system available to us. Normally, we'd need to have set up snapshots 
+or refer to a backup but `bootc` automatically provides us the rollback built in.
 
-----
-podman push summit.registry/lb1506:bootc
-----
-
-The actual generation of the custom `iso` image is out of scope for this workshop, so we are providing a convenient script to do so:
-
+Let's check for an available rollback option to get us back to the previous image.
 [source,bash]
-----
-make iso CONTAINER=summit.registry/lb1506:bootc
-----
 
-At the end of the run, you should be able to list the file `/var/lib/libvirt/images/summit/rhel-boot-custom.iso` as root:
-
-----
-sudo ls -lah /var/lib/libvirt/images/summit/rhel-boot-custom.iso
-----
-
-For reference, the script used to embed and build the custom iso can be found in `bin/embed-container` and it can
-be resumed with the following steps (*no need to run these commands*):
-
-  1. use `skopeo` to copy the container image to a temporary directoy on disk:
-
-+
-----
-skopeo copy "docker://summit.registry/lb1506:bootc" "oci:${TEMPDIR}/container/"
-----
-
-  2. generate a Kickstart file (more details below)
-  3. create the new iso using `mkksiso`
-
-+
-----
-mkksiso --ks local.kickstart --add ${TEMPDIR}/container/ original.iso custom.iso
-----
-
-The Kickstart added to the iso is in `config/local.ks` and looks like this:
-
-----
-text
-network --bootproto=dhcp --device=link --activate
-clearpart --all --initlabel --disklabel=gpt
-reqpart --add-boot
-part / --grow --fstype xfs
-
-ostreecontainer --url=/run/install/repo/container --transport=oci
-
-firewall --disabled
-services --enabled=sshd
-sshkey --username lab-user "SSHKEY"
-user --name="lab-user" --groups=wheel --plaintext --password=lb1506
-rootpw lb1506
-poweroff
-----
-
-Please note there are no rpm packages mentioned anywhere, just a `ostreecontainer` command:
-
-  * `--url=/run/install/repo/container` -> path to the local container in the iso but it can also directly take a publicly available registry
-  * `--transport=oci` -> the format in which the container is available, in this case `oci`
-
-If you wanted to deploy directly from a container registry, the `ostreecontainer` command would look like this (*no need to run this command*):
-
-----
-ostreecontainer --url=quay.io/myorg/myimage:mytag
-----
-
-[#run]
-== Starting the installation with Anaconda in a virtual machine
-
-In the previous section, you have created a custom installation iso. Let's see how a virtual machine booting off that image looks like. Creating
-a virtual machine from scratch is out of scope for this workshop, so we have provided a script to create the virtual machine:
-
-----
-make vm-iso
-----
-
-The command above will start the installation process and you should be able to see the console of a newly created virtual machine
-booting from the custom iso and automatically starting the installation process. This process is cumbersome for virtual machines, 
-but it is the process most generally used for bare metal hosts. It shows how a container image can make it's way anywhere with a 
-couple of simple commands and scripts. It's also important to note, everything needed is inside the custom iso created and at no
-point is network access required.
-
-You can now see if the virtual machine is running:
-
-[source,bash]
-----
-virsh --connect qemu:///system list
-
- Id   Name   State
-----------------------
- 1    qcow   running
- 4    iso    running
-----
-
-[#test]
-== Test and login to the virtual machine
-
-Like with the previous virtual machine created, you can directly see if the http application is already running on the host:
-
-[source,bash]
-----
-curl http://iso-vm
-----
-
-The output should be the already known "Hello Red Hat"
-
-You should also be able to login to the virtual machine:
-
-----
-ssh lab-user@iso-vm
-----
-
-If the ssh key is not automatically picked up, use the password `lb1506`.
-
-You can now check the status of `bootc`:
-
-----
-bootc status
-----
-
-The output should be similar to this:
-
-[source,yaml]
-----
-apiVersion: org.containers.bootc/v1alpha1
-kind: BootcHost
-metadata:
-  name: host
-spec:
-  image:
-    image: /run/install/repo/container
-    transport: oci
-  bootOrder: default
-status:
-  staged: null
-  booted:
-    image:
-      image:
-        image: /run/install/repo/container
-        transport: oci
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 42f36e87a9436d505b3993822b92dbf7961ad3f1a8fddf67b91746df365784f0
-      deploySerial: 0
-  rollback: null
-  rollbackQueued: false
-  type: bootcHost
-----
-
-[#switch]
-== Switching to the actual container image
-
-One thing that immediately is obvious in the `bootc status` output is that the deployed image image is a local path:
-
-[source,yaml]
-----
-spec:
-  image:
-    image: /run/install/repo/container
-    transport: oci
-  bootOrder: default
-----
-
-Because in the deployment step the container image was included in the installation iso, the reference to the registry container image
-is lost. This can be easily fixed by first pulling the image:
-
-[source,bash]
-----
-sudo podman pull --tls-verify=false summit.registry/lb1506:bootc
-----
-
-And then switching our installation to use the new container image:
-
-[source,bash]
-----
-sudo bootc switch --transport containers-storage summit.registry/lb1506:bootc
-----
-
-The output should look like this:
-
-----
-Loading usr/lib/ostree/prepare-root.conf
-Queued for next boot: ostree-unverified-image:containers-storage:summit.registry/lb1506:bootc
-  Version: 9.20240501.0
-  Digest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
-----
-
-At this point, the "new" installation has been prepared and will be started at next boot of the virtual machine.
-One last look at the status:
-
-[source,bash]
 ----
 sudo bootc status
 ----
-
-Should give the following output:
-
-[source,yaml]
 ----
 apiVersion: org.containers.bootc/v1alpha1
 kind: BootcHost
@@ -235,124 +30,198 @@ metadata:
 spec:
   image:
     image: summit.registry/lb1506:bootc
-    transport: containers-storage
+    transport: registry
   bootOrder: default
 status:
-  staged:
-    image:
-      image:
-        image: summit.registry/lb1506:bootc
-        transport: containers-storage
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 6e468a048b5c86ed8c481040b125b442b9222c914fc12799123717eb94fc43b6
-      deploySerial: 0
+  staged: null
   booted:
     image:
       image:
-        image: /run/install/repo/container
-        transport: oci
-      version: 9.20240501.0
+        image: summit.registry/lb1506:bootc
+        transport: registry
+      version: 9.20240714.0
       timestamp: null
-      imageDigest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
+      imageDigest: sha256:681f5f1b99985281f4fec2a0febc0ba1648aa6c91dc0f4f99c0ea1599edda8d7
     cachedUpdate: null
     incompatible: false
     pinned: false
     ostree:
-      checksum: 42f36e87a9436d505b3993822b92dbf7961ad3f1a8fddf67b91746df365784f0
+      checksum: 3839bd1c5fa58d08beb28b55c275e4ca881c6fd866fb56856f525efa45f0ba6f
       deploySerial: 0
-  rollback: null
+  rollback:
+    image:
+      image:
+        image: summit.registry/lb1506:bootc
+        transport: registry
+      version: 9.20240714.0
+      timestamp: null
+      imageDigest: sha256:9b49d2186c0e52142d0bc5ebace934420ba5108320c37ad985c423720fc69f29
+    cachedUpdate:
+      image:
+        image: summit.registry/lb1506:bootc
+        transport: registry
+      version: 9.20240714.0
+      timestamp: null
+      imageDigest: sha256:681f5f1b99985281f4fec2a0febc0ba1648aa6c91dc0f4f99c0ea1599edda8d7
+    incompatible: false
+    pinned: false
+    ostree:
+      checksum: 2d9ba2dbc14ea10d7c860bedafb19736e9d2f3a068f31f4545e5096a0369304e
+      deploySerial: 0
   rollbackQueued: false
   type: bootcHost
 ----
 
-Please take note of the `staged` section, which shows what is prepared for the next boot and the `booted` section which shows the currently
-booted status. For this exercise, these two differ only in name and source but it does show a regular workflow in using os containers.
+Looking at the status output, we can see there's a section marked `rollback`. There are at most 3 images 
+available on disk at any one time: 
 
-The last step for the change to take is to reboot the virtual machine. Before doing it, please make sure you are logged in to the
-virtual machine and not the hypervisor (the prompt should look like `[lab-user@lb1506-vm ~]$`):
+* the currently active image (`booted`)
+* the image that will be actived next (`staged`) 
+* the fallback image that we're be looking for here (`rollback`). 
+
+Not all of these sections will have information at all times.
+
+Rollbacks are as simple as running one command. Let's get this image back to the previous
+state then we can dig into what happened.
+
+[source,bash]
+----
+sudo bootc rollback
+----
+
+The command should return very fast and the output looks like this:
+
+----
+bootfs is sufficient for calculated new size: 0 bytes
+Next boot: rollback deployment
+----
+
+As usual, a reboot is needed to apply changes. Before doing so, please make sure you are logged in to the
+virtual machine and not the hypervisor (the prompt should look like `[lab@qcow-vm ~]$`):
 
 [source,bash]
 ----
 sudo systemctl reboot
 ----
 
-In a short time after that command, you should be able to ssh back to the virtual machine:
+[#directory-layout]
+== How image mode handles directories
+
+On the lab host, we're going to make some changes to the Containerfile to account for how
+directories are managed by `bootc`.
+
+In an image mode system, `bootc` manages available images on disk for updates and rollbacks. 
+You just created an update, applied it, then returned to a previous version all through `bootc`.
+Behind the scenes, `bootc` handles the following directories differently, which is what allows
+for the seamless update and rollback experience. 
+
+  * `/usr` -> image state, contents of the image will be extracted and overwrite local files
+  * `/etc` -> local configuration state, contents of the image are merged with a preference for local files
+  * `/var` -> local state, contents of the image will be ignored after the inital installation of any image
+
+The configuration files we added to `/etc` showed up after the update as a result of the merge treatment of bootc.
+If we'd made local changes that conflicted, we'd see the local changes rather than the new configs.
+
+Our initial web page went in `/var` which means after it was unpacked from the original image, `bootc`
+treated it as local machine state. So the change in the Containerfile wasn't applied to the running host. 
+Since we want to control everything about our webserver from the image, we'll need to make some changes 
+to where we put content and how we serve it in Apache.
+
+[source,dockerfile]
+----
+FROM registry.redhat.io/rhel9/rhel-bootc:9.4
+
+COPY certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf
+
+ADD etc/ /etc
+
+RUN dnf install -y httpd
+
+RUN <<EOF
+    mv /var/www /usr/share/www
+    sed -i 's-/var/www-/usr/share/www-' /etc/httpd/conf/httpd.conf
+EOF
+
+RUN echo "Hello Red Hat Summit Connect 2024!!" > /usr/share/www/html/index.html
+
+RUN systemctl enable httpd.service
+----
+
+Let's break down that new `RUN` directive using the heredoc format.
+
+The `httpd` package drops content in /var/www by default, and on bootc systems
+we have /var as machine local. Since we want to control web content in the image, 
+we need to move it to somewhere under `bootc` control. In our Containerfile, we move 
+the default package contents to our new location in `/usr` then update the Apache 
+configuration to serve pages from this new directory. We've also changed the echo line 
+to create the index.html in the new location.
+
+Rebuild the image with our new configuration and index page:
 
 [source,bash]
 ----
-ssh lab-user@iso-vm
+podman build --file Containerfile --tag summit.registry/lb1506:bootc
 ----
 
-And check the bootc status:
+And make sure to push it to the registry:
 
 [source,bash]
 ----
-sudo bootc status
+podman push summit.registry/lb1506:bootc
 ----
+[#update2-vm]
+== Updating the virtual machine
 
-[source,yaml]
-----
-apiVersion: org.containers.bootc/v1alpha1
-kind: BootcHost
-metadata:
-  name: host
-spec:
-  image:
-    image: summit.registry/lb1506:bootc
-    transport: containers-storage
-  bootOrder: default
-status:
-  staged: null
-  booted:
-    image:
-      image:
-        image: summit.registry/lb1506:bootc
-        transport: containers-storage
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 6e468a048b5c86ed8c481040b125b442b9222c914fc12799123717eb94fc43b6
-      deploySerial: 0
-  rollback:
-    image:
-      image:
-        image: /run/install/repo/container
-        transport: oci
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 42f36e87a9436d505b3993822b92dbf7961ad3f1a8fddf67b91746df365784f0
-      deploySerial: 0
-  rollbackQueued: false
-  type: bootcHost
-----
-
-You can now see the `booted` section mentiones out container image and there is a new `rollback` section. We will address this section in a future lab.
-
-You can explore the virtual machine before moving on to the next section:
-
-  * `systemctl status httpd` -> see the `httpd` service we have enabled in the Containerfile
-  * `cat /var/www/html/index.html` -> see the index.html file we have created in the Containerfile
-
-Before proceeding, make sure you have logged out of the virtual machine:
+Now you can ssh into the virtual machine
 
 [source,bash]
 ----
-logout
+ssh lab-user@qcow-vm
 ----
 
-The prompt should read `[lab-user@hypervisor rh-summit-2024-lb1506]$` before continuing.
+Previously, we checked for an update, downloaded and staged it locally to be activated, then manually rebooted 
+the system to have the update take effect. This is a very good procedure for a manual update or in places 
+where we need to schedule any outages ahead of time, say during a maintenance window. We can do this all at 
+once by adding a flag to the `update` command. This gives us a way to automate the process, like with a systemd
+timer. Image mode hosts ship with this timer by default.
+
+
+[source,bash]
+----
+sudo systemctl status bootc-fetch-apply-updates.timer
+----
+
+Instead of waiting for this timer to trigger, we can immediately apply the new update and reboot.
+
+[source,bash]
+----
+sudo bootc update --apply
+----
+
+Remember that the update will detail what layers are new, removed, or added.
+
+----
+Loading usr/lib/ostree/prepare-root.conf
+Queued for next boot: summit.registry/lb1506:bootc-auth
+  Version: 9.20240714.0
+  Digest: sha256:07eb42017b20ef5f33945014d0be92b077cb4890a97a5def117a745567cbd3f1
+Total new layers: 72    Size: 972.0 MB
+Removed layers:   3     Size: 127.2 MB
+Added layers:     5     Size: 127.2 MB
+Rebooting system
+
+Connection to qcow-vm closed by remote host.
+Connection to qcow-vm closed.
+----
+
+[#testing]
+== Testing the changes
+
+Shortly after reboot, check for our new web page:
+
+[source,bash]
+----
+curl http://qcow-vm
+----
+
+Now the output should be "Hello Red Hat Summit Connect 2024!!"

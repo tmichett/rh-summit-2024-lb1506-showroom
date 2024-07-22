@@ -1,228 +1,166 @@
-= Deploying a bootc container from inside a running system
+= Repurposing a bootc host
 
-Bootc containers are self deploying and a novel method of installation involves transforming a regular
-Linux host into a bootc backed host.
+In addition to simplifying updates and providing native rollback, operating RHEL in image mode also 
+makes it simple to quickly change the purpose of a running system. This means experimenting with new 
+versions of application components or testing OS updates is as simple as applying any other image change.
 
+In this lab we'll explore this feature as well as expand on the ideas of layering common in the application 
+container world.
 
-[#create-bootc]
-== Add authentication method to Containerfile
+[#write-containerfiles]
+== Writing advanced containerfiles
 
-When using this method of deployment, passwords and/or ssh keys need to be added directly to the container image. You
-need to edit the `Containerfile` to the following:
+NOITE: All of the files for this exercise are provided in the examples folder and we'll be operating on those 
+directly. If a command doesn't operate, or a file doesn't look correct, check to make sure you are in the right 
+directory.
+
+Instead of just running a webserver, what if we needed to run WordPress instances, and our developers need
+those to be containerized? Image mode hosts are suitable for a wide range of use cases beyond directly hosting 
+applications, and acting as a container host is one of those. In fact, the work that preceeded image mode was 
+largely focused on the role of container hosting. 
+
+On the host system (make sure the prompt shows `[lab-user@hypervisor edge-os]$`), you can
+change to the wordpress-quadlet directory to examine the new Containerfile.
+
+[source,bash]
+----
+cd examples/wordpress-quadlet
+nano Containerfile.wp
+----
+Using container tooling to create images let's us take advantage of layers and inheritance in our standard 
+build process. Different teams and work directly from images built by others, rather than by integrating after 
+the fact. Notice our `FROM` line is the image you've been working on throughout the lab. This means that every 
+bit of customization and software you've installed previously will be available on the host built from this new 
+definition. 
 
 [source,dockerfile]
 ----
-FROM registry.redhat.io/rhel9/rhel-bootc:9.4
+FROM summit.registry/lb1506:bootc
 
-RUN dnf install -y httpd
-RUN echo "Hello Red Hat" > /var/www/html/index.html
-RUN systemctl enable httpd
+RUN dnf -y install lynx
 
-ADD certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf
-
-ARG SSHPUBKEY
-ADD templates/30-auth-system.conf /etc/ssh/sshd_config.d/30-auth-system.conf
-RUN mkdir -p /usr/ssh
-RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys
-
-ENTRYPOINT /usr/sbin/httpd -DFOREGROUND
+ADD etc etc
+ADD usr usr
 ----
 
-Please notice the top part is still the httpd server we started this workshop with, but there are now 
-a couple of new lines:
+For an 'advanced` configuration, this doesn't have a lot of content, what's happening?
 
-  * `ADD certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf` -> will allow us to pull container images without TLS verification and is only necessary in this dev environment with self signed certificates for the registry.
-  * `ARG SSHPUBKEY` -> adds a new build-time argument for `podman` to be used as the public ssh key
-  * `ADD templates/30-auth-system.conf /etc/ssh/sshd_config.d/30-auth-system.conf` -> add configuration for ssh to take authorization keys from the usual HOMEDIR path *and* from `/usr/ssh/root.keys`
+Remember the `ADD` directive pulls full directories into the image at build time. So all of the work here is 
+somehow being done in `/usr` or `/etc`, let's see what's in there.
 
-+
-The contents of this file is
+The advanced part is the use of quadlets to run containers. A full description of quadlets is outside the scope 
+of this workshop, but in short, a quadlet is a way to run a container (or group of containers in this case) as a 
+systemd service. In `/etc/` we have a configuration file for the caddy server, a Golang HTTPS server acting as a proxy, 
+and a file of environment variables to be passed to the quadlet.
 
-+
-----
-AuthorizedKeysFile /usr/ssh/%u.keys .ssh/authorized_keys .ssh/authorized_keys2
-----
+In `/usr/share/containers/systemd/` we have all of the files that define the quadlet. The `.container` file defines 
+each of the containers for systemd to run. These are typical systemd unit files, aside from the `[Container]` block which 
+is unique to quadlets.
 
-  * `RUN mkdir -p /usr/ssh` -> create the new keys directory
-  * `RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys` -> write the build time argument as the ssh key for the `root` user
+[#build]
+== Build and push the image
 
-You can now build the new container image with with the following command:
+You can now build the image:
 
 [source,bash]
 ----
-podman build --build-arg SSHPUBKEY="$(cat  ~/.ssh/id_rsa.pub)" --file Containerfile --tag summit.registry/lb1506:bootc-auth
+podman build --file Containerfile.wp --tag summit.registry/lb1506:bootc-wp
 ----
 
-Please take note of the `--build-arg SSHPUBKEY="$(cat  ~/.ssh/id_rsa.pub)"` argument, which replaces `${SSHPUBKEY}` in the Containerfile with 
-the pregenerated ssh key stored in the file `~/.ssh/id_rsa.pub`.
-
-If the build command was successful, make sure to push the new container image to our local registry:
+And of course push it to the local registry:
 
 [source,bash]
 ----
-podman push summit.registry/lb1506:bootc-auth
+podman push summit.registry/lb1506:bootc-wp
 ----
 
-[#create-vm]
-== Creating the classic Linux host
-
-In this part you need to create a "regular" Linux virtual machine. The exact steps for creating a
-virtual machine are out of scope for this workshop, but you have a ready made script to do just that:
+You can now login to the virtual machine:
 
 [source,bash]
 ----
-make vm-regular
+ssh lab-user@qcow-vm
 ----
 
-The command above will download and start a CentOS Stream 9 virtual machine and inject it with the already generated
-ssh key.
+[switch-run]
+== Switch and test the image
 
-You can now check the virtual machine has been created:
+After the new container image has been pushed to the local registry,
+you can `switch` the bootc image to the WordPress one.
 
 [source,bash]
 ----
-virsh --connect qemu:///system list
+sudo bootc switch summit.registry/lb1506:bootc-wp
 ----
 
-The output should contain a virtual machine called `regular`.
-
-Before moving forward, you can quickly check that the new virtual machine is *not* running the http application:
-
-----
-curl http://regular-vm
-----
-
-The above command should fail.
-
-[#bootc-deploy]
-== Selfdeploying the bootc container
-
-Having created the `regular` virtual machine, you can now ssh into it:
+As usual, after the command is done you need to reboot the virtual machine
+for the changes to take effect. Before doing that, please make sure you are logged in to the
+virtual machine and not the hypervisor (the prompt should look like `[lab-user@qcow-vm ~]#`):
 
 [source,bash]
 ----
-ssh root@regular-vm
+sudo systemctl reboot
 ----
 
-Before moving forward, you can explore this regular virtual machine:
-
-  * `bootc status` -> should fail as there is no `bootc` commmand
-  * `cat /etc/os-release` -> should show you a standard CentOS Stream 9 host
-
-Now, inside the virtual machine, you can use `podman` to pull the bootc container:
+After a short while, you can log back in to the virtual machine:
 
 [source,bash]
 ----
-podman pull summit.registry/lb1506:bootc-auth
+ssh lab-user@qcow-vm
 ----
 
-And you can now use the container image to self deploy!
+[#layers]
+== Troubleshooting layered builds
+
+What was that failure we were notified about? 
 
 [source,bash]
 ----
-podman run --rm --privileged \
-        --pid=host --security-opt label=type:unconfined_t \
-        --volume /dev:/dev \
-        --volume /var/lib/containers:/var/lib/containers \
-        --volume /:/target \
-        --entrypoint bootc \
-        summit.registry/lb1506:bootc-auth \
-        install to-filesystem --skip-fetch-check --replace=alongside /target
+sudo systemctl status caddy.service
+sudo journalctl -t caddy
 ----
 
-The output of the previous command should like like this:
+We weren't prompted for our sudo password, but it looks like our new caddy server couldn't bind to port 80 
+when it tried to start.  What's going on? The answer to both lies in the image we built from. 
 
+If you look at the original Containerfile, you'll recall we set Apache to start at boot:
+
+[source,dockerfile]
 ----
-Installing image: docker://summit.registry/lb1506:bootc-auth
-Digest: sha256:783522458bb01c7c9870f03b21cbad7497edbb5e95fc59d7a2c3ada7141929fa
-Initializing ostree layout
-Initializing sysroot
-ostree/deploy/default initialized as OSTree stateroot
-Deploying container image
-Deployment complete
-Running bootupctl to install bootloader
-Installed: grub.cfg
-Installation complete!
+RUN systemctl enable httpd.service
 ----
 
-If the deployment was successful, you can now reboot the virtual machine and login to the new system! Before doing so,
-please make sure you are logged in to the virtual machine and not the hypervisor (the prompt should look like `[root@regular-vm ~]#`):
-
+If we check the status of Apache, we can see that it is indeed running and listening on port 80.
 
 [source,bash]
 ----
-systemctl reboot
+sudo systemctl status httpd.service
 ----
 
-Before logging in to the new virtual machine, you can check if the http application is already working:
-
-----
-curl http://regular-vm
-----
-
-After a brief moment, you should be able to log back into the (now) bootc system:
+Since local changes to /etc are kept by `bootc` when changing images, httpd stayed enabled on 
+this new host as well. Let's disable it and restart caddy.
 
 [source,bash]
 ----
-ssh-keygen -R regular-vm
-ssh root@regular-vm
+sudo systemctl disable --now httpd.service
+sudo systemctl restart caddy.service
+sudo systemctl status caddy.service
 ----
 
-Like for the first virtual machine, you can now check the bootc status:
+It looks like caddy started, let's check to see that it's passing requests to the WordPress 
+container in the quadlet. We don't have a GUI, but that's why we installed the Lynx browser
 
 [source,bash]
 ----
-bootc status
+lynx localhost
 ----
 
-The output should look like this:
+You should see the WordPress configuration dialog box. You can hit `Esc` and then `q` to quit lynx.
 
-[source,yaml]
-----
-apiVersion: org.containers.bootc/v1alpha1
-kind: BootcHost
-metadata:
-  name: host
-spec:
-  image:
-    image: summit.registry/lb1506:bootc-auth
-    transport: registry
-  bootOrder: default
-status:
-  staged: null
-  booted:
-    image:
-      image:
-        image: summit.registry/lb1506:bootc-auth
-        transport: registry
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 22b18bfa0e94fbe390379cb4bae150ebad85c8844e7b721179d26c1df636ce8e
-      deploySerial: 0
-  rollback: null
-  rollbackQueued: false
-  type: bootcHost
-----
+Easy updates, rollbacks, and image switching are part of the core improvements to the operation of 
+image mode systems. Layering is an important part of the design of standard builds and can have some 
+downstream effects as well. Just like stacking configuration management, thinking through the idea of 
+layered builds can be powerful.
 
-Congratulations, you have successfully deployed and booted a bootc container on a running host!
+But those aren't the only advantages or design considerations when thinking about 
+how to best use image mode in your workflows. Let's explore a few more advanced topics next.
 
-And the `httpd` service is running. We can verify that we get "Hello Red Hat" when curling the VM:
-
-[source,bash]
-----
-curl http://regular-vm
-----
-
-Before proceeding, make sure you have logged out of the virtual machine:
-
-[source,bash]
-----
-logout
-----
-
-The prompt should read `[lab-user@hypervisor rh-summit-2024-lb1506]$` before continuing.

@@ -1,13 +1,22 @@
-= Building a very simple containerized application
-
-In the first part of this workshop, you have done the initial setup. In this second part,
-you will build and test a very simple containerized application.
+= Build a bootc container image
+In this step you will transform an application container to a bootc image.
 
 [#write]
-== Write the Containerfile
+== Modify the Containerfile
 
-You have to write and build a simple file called `Containerfile` using the provided `nano`
-editor with the following contents:
+NOTE: The `vim` editor is also available. Users of `vim` should already know the basics
+of opening, saving and exiting the editor. The instructions will reflect `nano` commands.
+All of the files used can be found in the `examples` directory.
+
+Let's start with a typical application container and convert it to an image mode host. We'll start
+with something simple, a basic webserver running on the Red Hat Universal Base Image. To start the editor:
+
+[source,bash]
+----
+nano Containerfile
+----
+
+WARNING: Move the example Containerfile here as a starting point otherwise this won't make sense
 
 [source,dockerfile]
 ----
@@ -19,104 +28,78 @@ RUN echo "Hello Red Hat" > /var/www/html/index.html
 ENTRYPOINT /usr/sbin/httpd -DFOREGROUND
 ----
 
-A brief explanation of the lines above:
+A brief explanation of the key directives in the Containerfile above:
 
   * `FROM` -> the base container image
-  * `RUN` -> simple shell command that is run in the container at build time
   * `ENTRYPOINT` -> the command that will be executed by default at run time
 
-To start the editor:
+You can now modify the contents as follows:
 
-[source,bash]
+[source,dockerfile]
 ----
-nano Containerfile
+FROM registry.redhat.io/rhel9/rhel-bootc:9.4
+
+COPY certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf
+
+RUN dnf install -y httpd
+RUN echo "Hello Red Hat" > /var/www/html/index.html
+
+RUN systemctl enable httpd.service
 ----
 
-And after you've entered the contents from above, you can save and exit with `Ctrl+x`, followed by
+After you've made those changes, you can save and exit with `Ctrl+x`, followed by
 the key `y` at the "Save modified buffer?" prompt and of course the `Enter` key at the prompt
 with the filename.
 
-NOTE: The more advanced `vim` editor is also available. Users of `vim` should already know the basics
-of opening, saving and exiting the editor.
+Let's talk about the effects of these changes:
 
-You can check your `Containerfile` file was properly saved by listing it's current contents:
+  * The `FROM` field is now pointing to the Red Hat Enterprise Linux 9.4 bootc image instead of the UBI base image.
+  This new bootc image is a complete version of RHEL 9.4, much like the KVM image available on the Customer Portal. This 
+  image includes all of the OS components to run as a host as well as the new `bootc` commands. It is built using `ostree`
+  to facilitate the transactional updates that marks an image mode deployment from a package mode host.
+  
+  * `RUN systemctl enable httpd.service` replaces the `ENTRYPOINT`.  
+  To start the `httpd` service at host startup as you use `systemctl` would with any other host. There's no 
+  need to specify an executable that should be run when the container is started by a container engine like 
+  podman. 
 
-[source,bash]
-----
-cat Containerfile
-----
-
-NOTE: All the Containerfiles also exist in the `examples/` directory.
+  * `COPY certs/004-summit.conf...` copies a single file from our helper directory into the container. This config snippet
+  will allow us to pull container images without TLS verification in the lab environment. This is only necessary based on 
+  the use of self-signed certificates with the lack of an internal CA available.
 
 [#build]
-== Build the container
+== Build the first bootc image
 
-After defining the `Containerfile` you can build it by using the `podman build` command with
-the following arguments:
+As with application containers, you can build this container with standard tools:
 
   * `--file Containerfile` -> what Containerfile to use for the build
-  * `--tag summit.registry/lb1506:latest` -> the "tag" or name of the resulting container
+  * `--tag summit.registry/lb1506:bootc` -> the "tag" or name of the resulting container in the format
+     <registry>/<repository>:<tag>
 
-Of course, the filename and tag can be changed, but the rest of this workshop is geared towards using
-the above (`Containerfile` and `summit.registry/lb1506:latest`), so please try using them.
-
+[source,dockerfile]
 ----
-podman build --file Containerfile --tag summit.registry/lb1506:latest
+podman build --file Containerfile --tag summit.registry/lb1506:bootc
 ----
 
 If the above command is succesful, the last two lines of the output should read like this:
 
 ----
-Successfully tagged summit.registry/lb1506:latest
+Successfully tagged summit.registry/lb1506:bootc
 f1bea10eb37acf2e78a9b01c6242110c1901adbaf40dbce479241c6c735c58da
 ----
 
-[#test]
-== Test the containerized application
+== Distributing the bootc image
 
-Now that the application is ready, you can run it:
+Now that we have a full operating system in a standard OCI container image, we can use
+standard container registries to host and distribute our OS images. The only atypical thing so far 
+is what's in the base image. How we added software or files to the image is the same as any other 
+application container. The special sauce of `bootc` comes when a host is running.
 
-[source,bash]
-----
-podman run --rm --name http-test --detach --publish 80:80 summit.registry/lb1506:latest
-----
-
-Test that it is running:
-
-[source,bash]
-----
-podman ps | grep http-test
-----
-
-The output of the command above should read like this:
+We have a registry available within the lab environment we can push our image to:
 
 ----
-06a7bdb1950b  summit.registry/lb1506:latest    15 seconds ago  Up 16 seconds  0.0.0.0:80->80/tcp    http-test
+podman push summit.registry/lb1506:bootc
 ----
 
-And you can test the application:
-
-[source,bash]
-----
-curl http://localhost/
-----
-
-The result of the command above should be the "Hello Red Hat" string from the Containerfile:
-
-----
-Hello Red Hat
-----
-
-You should preserve this image by tagging it:
-
-----
-podman tag summit.registry/lb1506:latest summit.registry/lb1506:app
-----
-
-And you should also remove the running container:
-
-----
-podman stop http-test
-----
-
-Congratulations, you now know how to run a containerized web server! Let's see how you can tranform this simple application into a bootc container.
+You've built your first bootc image, and it's now published for use. How do we 
+get from here to a running system?

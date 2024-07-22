@@ -6,7 +6,7 @@ default: run
 run:
 	@podman kill antora || echo not running
 	podman run --rm --detach --name "${CONTAINER_NAME}" \
-		--volume "${PWD}:/antora" \
+		--volume "${PWD}:/antora:Z" \
 	   	--publish "${PORT}:8080" \
 		--replace \
 	   	ghcr.io/juliaaano/antora-viewer
