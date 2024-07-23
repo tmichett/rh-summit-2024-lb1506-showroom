@@ -10,7 +10,7 @@ container world.
 [#write-containerfiles]
 == Writing advanced containerfiles
 
-NOITE: All of the files for this exercise are provided in the examples folder and we'll be operating on those 
+NOTE: All of the files for this exercise are provided in the examples folder and we'll be operating on those 
 directly. If a command doesn't operate, or a file doesn't look correct, check to make sure you are in the right 
 directory.
 
@@ -19,13 +19,13 @@ those to be containerized? Image mode hosts are suitable for a wide range of use
 applications, and acting as a container host is one of those. In fact, the work that preceeded image mode was 
 largely focused on the role of container hosting. 
 
-On the host system (make sure the prompt shows `[lab-user@hypervisor edge-os]$`), you can
-change to the wordpress-quadlet directory to examine the new Containerfile.
+On the host system (make sure the prompt shows `[lab-user@hypervisor rh-summit-2024-lb1506]$`), you can
+change to the `wordpress-quadlet` directory to examine the new Containerfile.
 
 [source,bash]
 ----
 cd examples/wordpress-quadlet
-nano Containerfile.wp
+cat Containerfile.wp
 ----
 Using container tooling to create images let's us take advantage of layers and inheritance in our standard 
 build process. Different teams and work directly from images built by others, rather than by integrating after 
@@ -39,8 +39,8 @@ FROM summit.registry/lb1506:bootc
 
 RUN dnf -y install lynx
 
-ADD etc etc
-ADD usr usr
+ADD etc/ /etc
+ADD usr/ /usr
 ----
 
 For an 'advanced` configuration, this doesn't have a lot of content, what's happening?
@@ -48,19 +48,30 @@ For an 'advanced` configuration, this doesn't have a lot of content, what's happ
 Remember the `ADD` directive pulls full directories into the image at build time. So all of the work here is 
 somehow being done in `/usr` or `/etc`, let's see what's in there.
 
+
+[source,bash]
+----
+ls -lahR etc/ usr/
+----
+
 The advanced part is the use of quadlets to run containers. A full description of quadlets is outside the scope 
 of this workshop, but in short, a quadlet is a way to run a container (or group of containers in this case) as a 
-systemd service. In `/etc/` we have a configuration file for the caddy server, a Golang HTTPS server acting as a proxy, 
+systemd service. In `wordpress-quadlet/etc/` we have a configuration file for the caddy server, a Golang HTTPS server acting as a proxy, 
 and a file of environment variables to be passed to the quadlet.
 
-In `/usr/share/containers/systemd/` we have all of the files that define the quadlet. The `.container` file defines 
+In `wordpress-quadlet/usr/share/containers/systemd/` we have all of the files that define the quadlet. The `.container` file defines 
 each of the containers for systemd to run. These are typical systemd unit files, aside from the `[Container]` block which 
 is unique to quadlets.
 
 [#build]
 == Build and push the image
 
-You can now build the image:
+You can now build the image, but use a new tag. You may have noticed in the previous exercises, the name of the image has stayed the same. 
+Tags are how `bootc` keeps track of images, which is why each of the previous changes we made showed up as updates. In this exercise, we're 
+going to look at a different way to change what operating system in installed on a host, so this image will get a new tag. Tagging is a powerful 
+but somewhat subjective way to both provide information about an image and to control what's visible to any particular image mode host. Most 
+of that discussion is out of scope for this lab, but we'll explore how to use an alternate image here. Remember the format for the `--tag` flag 
+is `<registry>/<repository>:<tag>`.
 
 [source,bash]
 ----
@@ -84,8 +95,9 @@ ssh lab-user@qcow-vm
 [switch-run]
 == Switch and test the image
 
-After the new container image has been pushed to the local registry,
-you can `switch` the bootc image to the WordPress one.
+After the new container image has been pushed to the local registry, you can `switch` the bootc image to the WordPress one. This 
+`bootc` command is how we change what image to follow for updates. From here on, any changes made to the orginal `bootc` tagged image 
+would not show up as an available update, only changes to the new `bootc-wp` image.
 
 [source,bash]
 ----
@@ -111,7 +123,7 @@ ssh lab-user@qcow-vm
 [#layers]
 == Troubleshooting layered builds
 
-What was that failure we were notified about? 
+Check on the status of our newly created quadlet by checking the caddy proxy server. 
 
 [source,bash]
 ----
@@ -154,7 +166,16 @@ container in the quadlet. We don't have a GUI, but that's why we installed the L
 lynx localhost
 ----
 
-You should see the WordPress configuration dialog box. You can hit `Esc` and then `q` to quit lynx.
+You should see the WordPress configuration dialog box. You can hit `Q` (Shift + q) to quit lynx.
+
+Feel free to explore the virtual machine before moving on to the next section.
+
+Before proceeding, make sure you have logged out of the virtual machine:
+
+[source,bash]
+----
+logout
+----
 
 Easy updates, rollbacks, and image switching are part of the core improvements to the operation of 
 image mode systems. Layering is an important part of the design of standard builds and can have some 

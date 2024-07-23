@@ -1,7 +1,9 @@
-= Exploring strategies for users and credentials
+= Exploring alternate user creation methods
 
-[#update-container]
-== Updating the container image
+In this exercise, you'll explore other ways to create users and add credentials to image mode hosts.
+
+[#add-creds]
+== Embedding emergency credentials into an image
 In the previous exercises, we've created users and added ssh keys at install time, either via a blueprint file 
 passed to `bootc-image-buider` or via kickstart to Anaconda. There are many ways and many reasons why handling 
 users would happen at any particular stage of the process, during deployment or after install via network authentication.
@@ -12,7 +14,14 @@ The users and credentials would be tied to the image, which means controlling ho
 down this path. In this case, we'll be using a fairly simple means to get the lab host user's credentials into the VM, but you will want to explore more 
 before making this choice in your own environment.
 
-On the host system (make sure the prompt shows `[lab-user@hypervisor rh-summit-2024-lb1506]$`), you can now edit the `Containerfile` with the following contents:
+On the host system (make sure the prompt shows `[lab-user@hypervisor rh-summit-2024-lb1506]$`), and are in the `rh-summit-2024-lb1506` directory
+
+[source,bash]
+----
+cd ~/rh-summit-2024-lb1506
+----
+
+You can now edit the `Containerfile` to match the following:
 
 [source,dockerfile]
 ----
@@ -25,33 +34,43 @@ ARG SSHPUBKEY
 RUN mkdir -p /usr/ssh
 RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys
 
+ADD etc/ /etc
+
 RUN dnf install -y httpd
-RUN echo "Hello Red Hat" > /var/www/html/index.html
-RUN systemctl enable httpd
+
+RUN <<EOF
+    mv /var/www /usr/share/www
+    sed -i 's-/var/www-/usr/share/www-' /etc/httpd/conf/httpd.conf
+EOF
+
+RUN echo "Hello Red Hat Summit Connect 2024!!" > /usr/share/www/html/index.html
+
+RUN systemctl enable httpd.service
 ----
 
-We will use some addtional build features of `podman` to get the credentials we want to embed in the image.
+We will use an addtional build feature of `podman` to get the credentials we want to embed passed to the image.
 
   * `ARG SSHPUBKEY` -> adds a build-time argument for `podman` to be used as the public ssh key
   * `RUN mkdir -p /usr/ssh` -> create the new keys directory
   * `RUN echo ${SSHPUBKEY} > /usr/ssh/root.keys && chmod 0600 /usr/ssh/root.keys` -> write the build time argument as the ssh key for the `root` user
 
-You can now build the new container image with with the following command, note the `--build-arg` argument and how we populate the variable:
+You can now build the new container image with the following command, note the `--build-arg` argument and how we populate the variable. We're also 
+going to use a new tag for this image, like we did in the previous `bootc switch` exercise.
 
 [source,bash]
 ----
-podman build --build-arg SSHPUBKEY="$(cat ~/.ssh/id_rsa.pub)" --file Containerfile --tag summit.registry/lb1506:bootc
+podman build --build-arg SSHPUBKEY="$(cat ~/.ssh/id_rsa.pub)" --file Containerfile --tag summit.registry/lb1506:bootc-auth
 ----
 
 And make sure to push it to the registry:
 
 [source,bash]
 ----
-podman push summit.registry/lb1506:bootc
+podman push summit.registry/lb1506:bootc-auth
 ----
 
-[#update-vm]
-== Updating the virtual machine
+[#switch-creds]
+== Changing the virtual machine image
 
 The virtual machine you have been working with during this workshop should still be running. You can check this with
 
@@ -69,68 +88,33 @@ Now you can ssh into the virtual machine
 ssh lab-user@qcow-vm
 ----
 
-And check the bootc status:
+We can change to our new image with the embedded root credentials
 
 [source,bash]
 ----
-sudo bootc status
-----
-
-The output should look like this:
-
-[source,yaml]
-----
-apiVersion: org.containers.bootc/v1alpha1
-kind: BootcHost
-metadata:
-  name: host
-spec:
-  image:
-    image: summit.registry/lb1506:bootc
-    transport: registry
-  bootOrder: default
-status:
-  staged: null
-  booted:
-    image:
-      image:
-        image: summit.registry/lb1506:bootc
-        transport: registry
-      version: 9.20240707.0
-      timestamp: null
-      imageDigest: sha256:da0fa085029428483c884845712e20785bcff14a54bda301f66310a13df2872a
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 21d4df251895c2d84fff4301b734435f4971a5cac16c76d886b7848d939b73e3
-      deploySerial: 0
-  rollback: null
-  rollbackQueued: false
-  type: bootcHost
-----
-
-We can trigger the update and immediately reboot by using the `--apply` flag:
-
-[source,bash]
-----
-sudo bootc update --apply
+sudo bootc switch summit.registry/lb1506:bootc-auth
 ----
 
 The output should look something like this:
 
 ----
-Loading usr/lib/ostree/prepare-root.conf
+layers already present: 68; layers needed: 7 (126.7 MB)
+ 452 B [████████████████████] (0s) Fetched layer sha256:2691e6642975            
+Pruned images: 0 (layers: 0, objsize: 58.9 MB)
 Queued for next boot: summit.registry/lb1506:bootc-auth
-  Version: 9.20240501.0
-  Digest: sha256:c5a5bc63cc5d081c528c82a177d0c5eac996a16fa3a651f93d07825302ff5336
-Total new layers: 73    Size: 947.9 MB
-Removed layers:   6     Size: 2.3 kB
-Added layers:     6     Size: 2.2 kB
-Rebooting system
+  Version: 9.20240721.0
+  Digest: sha256:2afd495b9dd3e72aa4926deb1e738af54e0b1bb935803bc6c107bdd919347167
+----
+As usual, after the command is done you need to reboot the virtual machine
+for the changes to take effect. Before doing that, please make sure you are logged in to the
+virtual machine and not the hypervisor (the prompt should look like `[lab-user@qcow-vm ~]#`):
+
+[source,bash]
+----
+sudo systemctl reboot
 ----
 
-[#testing]
+[#user-test]
 == Testing the changes
 
 You can now login to the virtual machine with the newly added root credentials:
@@ -140,7 +124,7 @@ You can now login to the virtual machine with the newly added root credentials:
 ssh root@qcow-vm
 ----
 
-And check once again the status of bootc:
+And check once again the status of bootc (no need to use `sudo`, you are root):
 
 [source,bash]
 ----
@@ -150,6 +134,10 @@ bootc status
 The output should look like this:
 
 [source,yaml]
+apiVersion: org.containers.bootc/v1alpha1
+kind: BootcHost
+metadata:
+  name: host
 spec:
   image:
     image: summit.registry/lb1506:bootc-auth
@@ -162,35 +150,41 @@ status:
       image:
         image: summit.registry/lb1506:bootc-auth
         transport: registry
-      version: 9.20240501.0
+      version: 9.20240721.0
       timestamp: null
-      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
+      imageDigest: sha256:2afd495b9dd3e72aa4926deb1e738af54e0b1bb935803bc6c107bdd919347167
     cachedUpdate: null
     incompatible: false
     pinned: false
     ostree:
-      checksum: 09221f57a440c585ebd5e77e7b2fe6d4a8d9fab083c2e62dad4e322c16ec6bed
+      checksum: 6307d9fdc8be3f0c202ce49e311b1d046d6d606dea7bcff51ad5d8910f7887b3
       deploySerial: 0
   rollback:
     image:
       image:
-        image: summit.registry/lb1506:bootc-auth
+        image: summit.registry/lb1506:bootc-wp
         transport: registry
-      version: 9.20240501.0
+      version: 9.20240721.0
       timestamp: null
-      imageDigest: sha256:d2f01ccf89c4ef6c4cc7d61982e4a83d3fc222c9028ab3eacc4ea0667df436e9
-    cachedUpdate:
-      image:
-        image: summit.registry/lb1506:bootc-auth
-        transport: registry
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:b57df8b24f7ddaf39ade0efe02d203e4fcd63deca2a9fd47f4af5c2cc3fcd017
+      imageDigest: sha256:af3c6bd4ae7beb9bb10f9846c7bc9d9ba1ede259b4b45e581ddcd97ab2df4380
+    cachedUpdate: null
     incompatible: false
     pinned: false
     ostree:
-      checksum: dbc49413600f67d5ba26dbf6f3bf441ea1824b5091a6e2038901263b3262651f
+      checksum: 543f6c9a5b8e2f354db71adda5db7ca74b53bcb9fdf8c8fcd391e7c66c77062a
       deploySerial: 0
   rollbackQueued: false
   type: bootcHost
+----
+
+Feel free to explore the virtual machine before moving on to the next section, remembering you are now `root`.
+
+Since we've moved away from the WordPress image back to a standard httpd service, you can look for the original 
+index file on disk or via `curl`.
+
+Before proceeding, make sure you have logged out of the virtual machine:
+
+[source,bash]
+----
+logout
 ----

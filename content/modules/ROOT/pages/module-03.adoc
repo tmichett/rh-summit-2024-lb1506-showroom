@@ -1,7 +1,10 @@
 = Deploy a virtual machine with bootc image
 
 In this lab, you will build a `qcow2` disk image from the bootc image and then launch
-a virtual machine using it. `qcow2` is a standard file format used by the Linux virtualization system.
+a virtual machine from it. `qcow2` is a standard file format used by the Linux virtualization system.
+
+NOTE: This exercise includes both a make command and the commands executed by that make target. You do not need to 
+execute both.
 
 [#config]
 == Create the config for building the virtual machine image
@@ -40,6 +43,11 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAuXnpoluye+KM+9tvIAdHf+F0IHh+K73tlcjEG8LJRB
 
 You can now create a file called `config-qcow2.json` with the following contents, replacing "SSHKEY" 
 in the `key` field with the contents of `~/.ssh/id_rsa.pub` from your system:
+
+[source,bash]
+----
+nano config-qcow2.json
+----
 
 [source,json]
 ----
@@ -130,7 +138,8 @@ The output should be similar to:
 
 The creation of virtual machines is out of scope for this lab, so we have provided a convenience command in the Makeile.
 We've detailed the commnds being run so you can follow along with what is happening. If you like, feel free to run the 
-commands on your own instead of using the `make` target.  
+commands on your own instead of using the `make` target. The core of the `virt-install` command used is `--import` which 
+skips the install process and creates the VM based on the provided disk image.
 
 [source,bash]
 ----
@@ -242,6 +251,26 @@ You can explore the virtual machine before moving on to the next section:
 
   * `systemctl status httpd` -> see the `httpd` service we have enabled in the Containerfile
   * `cat /var/www/html/index.html` -> see the index.html file we have created in the Containerfile
+
+How can we tell that we are on system and not running a container? First, `bootc` can tell you directly if it's being run 
+on an image mode host or not in the `bootc status` output. It will be all `null` values if run on a non-bootc enabled host. 
+
+For other ways, we can look at how the system was started and some of the characteristics that will change, like SELinux context.
+
+Let's look at kernel command line as well as PID1 in the `/proc` filesystem and see what runtime info we have.
+
+[source,bash]
+----
+ cat /proc/cmdline
+ cat /proc/1/cgroup
+ cat /proc/1/attr/current
+----
+
+We can see in the kernel command line some clear ties to `ostree`, and our PID1 details shows systemd running with init context from 
+the cgroup hierarchy and SELinux context. We'll look at the container output in a later exercise, but the SELinux context would differ.
+----
+Get outputs 
+----
 
 Before proceeding, make sure you have logged out of the virtual machine:
 

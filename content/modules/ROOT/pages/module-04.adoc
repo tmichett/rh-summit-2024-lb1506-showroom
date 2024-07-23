@@ -1,6 +1,6 @@
 = Updating bootc systems
 
-In this lab, you will learn how to provide updates to bootc hosts and rollback if needed. 
+In this lab, you will learn how to create updated images and apply them to bootc hosts. 
 
 [#update-container]
 == Updating the container image
@@ -113,7 +113,7 @@ ssh lab-user@qcow-vm
 ----
 
 The `bootc update` command will download and prepare a detected update for use at the next boot. This means updates are offline, and 
-can be applied at any time. Changes will only take effect when the system reboots.
+can be applied at any time. Changes will only take effect when the system reboots. (Reminder, the password for `sudo` is `lb1506`):
 
 [source,bash]
 ----
