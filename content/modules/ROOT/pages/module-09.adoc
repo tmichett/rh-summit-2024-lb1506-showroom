@@ -47,7 +47,7 @@ sudo ls -lah /var/lib/libvirt/images/summit/rhel-boot-custom.iso
 ----
 
 *For reference*, the script used to embed and build the custom ISO can be found in `bin/embed-container` and it can
-be resumed with the following steps (*no need to run these commands*):
+be replicated with the following steps (*no need to run these commands*):
 
   1. use `skopeo` to copy the container image to a temporary directory on disk:
 
@@ -63,6 +63,9 @@ skopeo copy "docker://summit.registry/lb1506:bootc" "oci:${TEMPDIR}/container/"
 ----
 mkksiso --ks local.kickstart --add ${TEMPDIR}/container/ original.iso custom.iso
 ----
+
+[#kickstart]
+== Exploring the kickstart file
 
 The Kickstart added to the iso is in `config/local.ks` and looks like this:
 
@@ -99,6 +102,15 @@ All of the rest of the kickstart is standard fare. Anaconda will create the part
 just like it would in any other install. You even have access to the `%pre` and `%post` blocks too, the only missing section from any kickstart you 
 have today is the `%packages` list.
 
+Once you see the following output, you can proceed.
+....
+ISO image produced: 1028128 sectors
+Written to medium : 1028288 sectors at LBA 32
+Writing to '/var/lib/libvirt/images/summit/rhel-boot-custom.iso' completed successfully.
+
+Done
+....
+
 [#run]
 == Starting the installation with Anaconda in a virtual machine
 
@@ -111,20 +123,33 @@ path of the ISO file to the install process. This emulates inserting a phyiscal 
 make vm-iso
 ----
 
-The command above will start the installation process and you should be able to see the console of a newly created virtual machine
+The command above will start the installation process and you should see the console of a newly created virtual machine
 booting from the custom iso. Watch for the Anaconda output as it proceeds with the unattended install. 
+
+....
+Powering off.
+[   65.973246] reboot: Power down
+
+Domain creation completed.
+You can restart your domain by running:
+  virsh --connect qemu:///system start iso
+virsh --connect "qemu:///system" start "iso"
+Domain 'iso' started
+
+....
 
 You can now see if the virtual machine is running:
 
 [source,bash]
 ----
 virsh --connect qemu:///system list
-
+----
+....
  Id   Name   State
 ----------------------
  1    qcow   running
  4    iso    running
-----
+....
 
 [#test]
 == Test and login to the virtual machine
@@ -189,7 +214,8 @@ status:
 [#switch]
 == Switching to a different transport method
 
-One thing that immediately is obvious in the `bootc status` output is that the deployed image image is a local path:
+One thing that immediately is different in the `bootc status` output is that the deployed image image is a local path, not the 
+container naming convention we've been using:
 
 [source,yaml]
 ----
@@ -200,36 +226,37 @@ spec:
   bootOrder: default
 ----
 
-The `spec` block also tells us how `bootc` will look for updates to the image. The `transport` line refers to the OCI 
-definition of images which includes how they are pulled. The `oci` transport means this is a single image located at a 
-specific local path. This is useful for installing the way we did, but less so for updates. So far in this lab, we have 
-been using the `registry` transport, which requires network access. If we wanted to manage updates in an offline manner, 
+The `transport` line refers to the OCI definition of images which includes how they are pulled. The `oci` transport means 
+this is a single image located at a specific local path. This is useful for installing the way we did, but less so for updates. 
+
+So far in this lab, we have been using the `registry` transport, which requires network access. If we wanted to manage updates in an offline manner, 
 say for disconnected environments or those with intermittent connectivity, we can use `containers-storage` which refers to 
 the locally configured shared locations. A full discussion of transports and their associated uses and configuration is outside 
 the scope of this lab.
 
-To keep with the theme of offline usage, let's simulate pushing an update to the local storage 
+To keep with the theme of offline usage, let's simulate updating from the local storage. We can use `skopeo` to copy images from one location to another. 
+In the embedded ISO script, it's used to copy from the registry to be included in the final image. Here, we can use it to copy from 
+the registry to the host.
 
 [source,bash]
 ----
-sudo skopeo copy --tls-verify=false docker://summit.registry/lb1506:bootc  containers-storage://summit.registry/lb1506:bootc 
+sudo skopeo copy --tls-verify=false docker://summit.registry/lb1506:bootc  containers-storage:summit.registry/lb1506:bootc 
 ----
 
-And then switching our installation to use the new container image:
+Switch our installation to use the new container image, using the `--transport` flag to let bootc know we want to use local 
+container storage for this operation.
 
 [source,bash]
 ----
 sudo bootc switch --transport containers-storage summit.registry/lb1506:bootc
 ----
 
-The output should look like this:
-
-----
+....
 Loading usr/lib/ostree/prepare-root.conf
 Queued for next boot: ostree-unverified-image:containers-storage:summit.registry/lb1506:bootc
   Version: 9.20240501.0
   Digest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
-----
+....
 
 At this point, the "new" installation has been prepared and will be started at next boot of the virtual machine.
 One last look at the status:
@@ -287,7 +314,7 @@ status:
 ----
 
 Please take note of the `staged` section, which shows what is prepared for the next boot and the `booted` section which shows the currently
-booted status. You can see the change to the `transport` from the original directory path, to a standard container naming convention.
+booted status. You can see the change to the `image` in the `spec` block from the original directory path to a standard container naming convention.
 
 The last step for the change to take is to reboot the virtual machine. Before doing it, please make sure you are logged in to the
 virtual machine and not the hypervisor (the prompt should look like `[lab-user@lb1506-vm ~]$`):
@@ -356,9 +383,9 @@ status:
   type: bootcHost
 ----
 
-In the status you can see `bootc` is now tracking local container storage for updates. Further updates would then be probvided some media 
-presented to the host. You could use skopeo to both sync a registry repository to a media as well as copy it from the media to the local 
-storage on the host. These images are visible to podman as well. 
+In the status you can see `bootc` is now tracking local container storage for updates. Further updates would then be provided on media 
+presented to the host, like a USB drive or DVD. You could use skopeo sync a registry repository to media as well as copy it 
+from the media to the local storage on the host. These images are visible to podman as well. 
 
 [source,bash]
 ----
@@ -366,6 +393,12 @@ sudo podman images
 ----
 
 There are a range of possibilities for edge devices, disconnected networks, and any other arenas where direct connectivity to a 
-registry over a network isn't possible or desired. Image mode for RHEL provides a new way to think about risks involved with updating 
-hosts, using native rollback functionality, and quickly and easily changing the role of a particular host. We hope you've had a few 
-ideas of how the techiniques and topics in this workshop could apply to the environments you manage.
+registry over a network isn't possible or desired. 
+
+[#complete]
+== Workshop complete!
+You've now completed all of the exercises in today's workshop.
+
+Image mode for RHEL provides a new way to think about risks involved with updating hosts, creates native rollback functionality, 
+and can quickly and easily change the role of a particular host. We hope you've had a few ideas of how the techiniques and topics 
+in this workshop could apply to the environments you manage.

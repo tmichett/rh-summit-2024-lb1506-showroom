@@ -1,7 +1,7 @@
-WARNING: This should be done during the presentation
+TIP: This workshop uses blocks which contain runnable commands and represent output. The blocks marked with `bash`, `dockerfile`, etc 
+in the upper right corner can be copied and pasted into a terminal window instead of being typed. This is provided as a convenience.
 
 = System setup
-
 In this lab, you will be cloning the lab helper scripts and preparing
 the host, as well as setting up the required access for Red Hat resources.
 
@@ -69,7 +69,7 @@ make status
 
 The output from the command above should be similar to the following:
 
-----
+....
 git status
 On branch master
 Your branch is up to date with 'origin/master'.
@@ -90,4 +90,4 @@ podman image exists quay.io/kwozyman/toolbox:registry
 net.ipv4.ip_unprivileged_port_start = 80
 ID            NAME             CPU %       MEM USAGE / LIMIT  MEM %       NET IO            BLOCK IO    PIDS        CPU TIME    AVG CPU %
 fa77d569b19f  summit-registry  0.05%       17.9MB / 67.3GB    0.03%       3.88kB / 1.888kB  0B / 0B     20          18.923277s  0.05%
-----
+....

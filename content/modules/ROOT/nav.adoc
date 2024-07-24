@@ -4,10 +4,10 @@
 ** xref:module-01.adoc#high-level[High level setup]
 ** xref:module-01.adoc#status[Setup check]
 
-* xref:module-02adoc[2. Building the first bootc container]
+* xref:module-02.adoc[2. Building the first bootc container]
 ** xref:module-02.adoc#write[(re)Write the Containerfile]
 ** xref:module-02.adoc#build[Build the bootc image]
-** xref:module-02.adoc#test[Test the container]
+** xref:module-02.adoc#distribute[Distributing the bootc image]
 
 * xref:module-03.adoc[3. Deploying a virtual machine with bootc image]
 ** xref:module-03.adoc#config[Create the build config]
@@ -28,16 +28,18 @@
 
 * xref:module-06.adoc[6. Repurposing a bootc host]
 ** xref:module-06.adoc#write-containerfiles[Write containerfile]
-** xref:module-06.adoc#build[Build and push container image]
+** xref:module-06.adoc#build[Build and push new image]
 ** xref:module-06.adoc#switch-run[Switch the image and run]
+** xref:module-06.adoc##layers[Troubleshooting updates]
 
-* xref:module-07adoc[7. Embedding credentials in an image]
+* xref:module-07.adoc[7. Local image mode testing]
 ** xref:module-07.adoc#test[Testing as a container]
 
-* xref:module-08adoc[8. Embedding credentials in an image]
+* xref:module-08.adoc[8. Embedding credentials in an image]
 ** xref:module-08.adoc#add-creds[Embedding emergency credentials]
+** xref:module-08.adoc#secrets[Using podman secrets]
 ** xref:module-08.adoc#switch-creds[Changing the virtual machine image]
-** xref:module-08.adoc#user-test[Test the container]
+** xref:module-08.adoc#user-test[Test the changes]
 
 * xref:module-09.adoc[9. Deploying a bootc virtual machine with Anaconda]
 ** xref:module-09.adoc#build[Building the installer iso]

@@ -63,15 +63,19 @@ In `wordpress-quadlet/usr/share/containers/systemd/` we have all of the files th
 each of the containers for systemd to run. These are typical systemd unit files, aside from the `[Container]` block which 
 is unique to quadlets.
 
+Feel free to explore these files and directories before moving on.
+
 [#build]
 == Build and push the image
 
-You can now build the image, but use a new tag. You may have noticed in the previous exercises, the name of the image has stayed the same. 
-Tags are how `bootc` keeps track of images, which is why each of the previous changes we made showed up as updates. In this exercise, we're 
-going to look at a different way to change what operating system in installed on a host, so this image will get a new tag. Tagging is a powerful 
-but somewhat subjective way to both provide information about an image and to control what's visible to any particular image mode host. Most 
-of that discussion is out of scope for this lab, but we'll explore how to use an alternate image here. Remember the format for the `--tag` flag 
-is `<registry>/<repository>:<tag>`.
+When we build this image, we will use a new tag. You may have noticed in the previous exercises, the name of the image has stayed the same. 
+Tags are how `bootc` keeps track of images, which is why each of the previous changes we made showed up as updates. 
+
+
+In this exercise, we're going to look at a different way to change what operating system in installed on a host, so this image will get a new tag. 
+Tagging is a powerful but somewhat subjective way to both provide information about an image and to control what's visible to any particular image 
+mode host. Most of that discussion is out of scope for this lab, but we'll explore how to use an alternate image here. 
+Remember the format for the `--tag` flag is `<registry>/<repository>:<tag>`.
 
 [source,bash]
 ----
@@ -85,6 +89,9 @@ And of course push it to the local registry:
 podman push summit.registry/lb1506:bootc-wp
 ----
 
+Notice that even though we used a new tag for this image, the push still used cached layers. This is an advantage of stacking images in a standard 
+build design.
+
 You can now login to the virtual machine:
 
 [source,bash]
@@ -92,7 +99,7 @@ You can now login to the virtual machine:
 ssh lab-user@qcow-vm
 ----
 
-[switch-run]
+[#switch-run]
 == Switch and test the image
 
 After the new container image has been pushed to the local registry, you can `switch` the bootc image to the WordPress one. This 
@@ -130,6 +137,13 @@ Check on the status of our newly created quadlet by checking the caddy proxy ser
 sudo systemctl status caddy.service
 sudo journalctl -t caddy
 ----
+....
+Jul 24 14:40:30 qcow-vm systemd[1]: caddy.service: Failed with result 'exit-code'.
+Jul 24 14:40:30 qcow-vm systemd[1]: Failed to start Caddy Quadlet.
+
+Jul 24 14:40:25 qcow-vm caddy[1347]: Error: cannot listen on the TCP port: listen tcp4 :80: 
+Jul 24 14:40:27 qcow-vm caddy[1780]: Error: cannot listen on the TCP port: listen tcp4 :80:
+....
 
 We weren't prompted for our sudo password, but it looks like our new caddy server couldn't bind to port 80 
 when it tried to start.  What's going on? The answer to both lies in the image we built from. 
@@ -157,9 +171,16 @@ sudo systemctl disable --now httpd.service
 sudo systemctl restart caddy.service
 sudo systemctl status caddy.service
 ----
+....
+Removed "/etc/systemd/system/multi-user.target.wants/httpd.service".
+
+● caddy.service - Caddy Quadlet
+     Loaded: loaded (/usr/share/containers/systemd/caddy.container; generated)
+     Active: active (running) since Wed 2024-07-24 14:42:21 UTC; 6s ago
+....
 
 It looks like caddy started, let's check to see that it's passing requests to the WordPress 
-container in the quadlet. We don't have a GUI, but that's why we installed the Lynx browser
+container in the quadlet. Curl will dump a mess of HTML and we don't have a GUI, but that's why we installed the Lynx browser
 
 [source,bash]
 ----

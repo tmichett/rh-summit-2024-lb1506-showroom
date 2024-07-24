@@ -3,7 +3,7 @@
 In this lab, you will learn how to create updated images and apply them to bootc hosts. 
 
 [#update-container]
-== Updating the container image
+== Updating the bootc image
 
 We've created our first system but there are a few things that might be missing we typically 
 do to our systems. Not requiring a password every time we use sudo might be something we allow 
@@ -64,13 +64,14 @@ FROM registry.redhat.io/rhel9/rhel-bootc:9.4
 
 COPY certs/004-summit.conf /etc/containers/registries.conf.d/004-summit.conf
 
-ADD etc/ /etc
+ADD etc/ /etc # <1>
 
 RUN dnf install -y httpd
 RUN echo "Hello Red Hat Summit Connect 2024!!" > /var/www/html/index.html
 
 RUN systemctl enable httpd.service
 ----
+<1> Adding the files we just created
 
 If you aren't familiar, the `ADD` directive has some extra Capabilities over the `COPY` command we used for the SSL certs. Where 
 `COPY` only works on a single file, `ADD` can work on complete directories or even unpack tar files. This can 
@@ -103,7 +104,7 @@ The last virtual machine you have created during this workshop should still be r
 virsh --connect qemu:///system list
 ----
 
-And the output should containe a virtual machine called `qcow`.
+And the output should the virtual machine called `qcow` as `running`.
 
 Now you can ssh into the virtual machine:
 
@@ -122,7 +123,7 @@ sudo bootc update
 
 The output should look something like this:
 
-----
+....
 Loading usr/lib/ostree/prepare-root.conf
 Queued for next boot: summit.registry/lb1506:bootc-auth
   Version: 9.20240501.0
@@ -130,11 +131,9 @@ Queued for next boot: summit.registry/lb1506:bootc-auth
 Total new layers: 73    Size: 947.9 MB
 Removed layers:   6     Size: 2.3 kB
 Added layers:     6     Size: 2.2 kB
-----
+....
 
-Notice that `bootc update` provides information about the layers that have been modified. You can see the staged changes in 
-addition to current running state of the host in `bootc status`. The SHA in the `staged` block below should match the Digest 
-from the output of `bootc update`. 
+Notice that `bootc update` provides information about the layers that have been modified. 
 
 [source,bash]
 ----
@@ -143,8 +142,7 @@ sudo bootc status
 
 The output should look like:
 
-[source,yaml]
-----
+....
 apiVersion: org.containers.bootc/v1alpha1
 kind: BootcHost
 metadata:
@@ -155,7 +153,7 @@ spec:
     transport: registry
   bootOrder: default
 status:
-  staged:
+  staged: <1>
     image:
       image:
         image: summit.registry/lb1506:bootc
@@ -192,7 +190,9 @@ status:
   rollback: null
   rollbackQueued: false
   type: bootcHost
-----
+....
+<1> You can see the staged changes in addition to current running state of the host in `bootc status`. The SHA in the `staged` block 
+should match the Digest from the output of `bootc update`. 
 
 The last step for the change to take is to reboot the virtual machine. Before doing so, please make sure you are logged in to the
 virtual machine and not the hypervisor (the prompt should look like `[lab-user@qcow-vm ~]$`):
@@ -205,7 +205,7 @@ sudo systemctl reboot
 [#testing]
 == Testing the changes
 
-Log into the system and and you should see the message of the day after logging in successfully.
+After a short wait, log back into the system and and you should see the message of the day after logging in successfully.
 
 [source,bash]
 ----
@@ -225,7 +225,11 @@ curl http://localhost
 sudo cat /var/www/html/index.html
 ----
 
-The new text doesn't appear, and it's also not in the file on disk. This is expected based on 
+....
+Hello Red Hat
+....
+
+The new text doesn't appear, and it's also not in the file on disk. This is *expected* based on 
 how `bootc` handles directories and image contents during changes.
 
 Stay logged into the VM to explore this in the next module.
