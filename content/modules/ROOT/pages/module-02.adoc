@@ -16,8 +16,6 @@ with something simple, a basic webserver running on the Red Hat Universal Base I
 nano Containerfile
 ----
 
-WARNING: Move the example Containerfile here as a starting point otherwise this won't make sense
-
 [source,dockerfile]
 ----
 FROM registry.access.redhat.com/ubi9/ubi
@@ -33,7 +31,7 @@ A brief explanation of the key directives in the Containerfile above:
   * `FROM` -> the base container image
   * `ENTRYPOINT` -> the command that will be executed by default at run time
 
-You can now modify the contents as follows:
+You can now replace the contents as follows:
 
 [source,dockerfile]
 ----
@@ -47,9 +45,8 @@ RUN echo "Hello Red Hat" > /var/www/html/index.html
 RUN systemctl enable httpd.service
 ----
 
-After you've made those changes, you can save and exit with `Ctrl+x`, followed by
-the key `y` at the "Save modified buffer?" prompt and of course the `Enter` key at the prompt
-with the filename.
+TIP: In `nano`, you can save and exit with `Ctrl+x`, followed by the key `y` at the "Save modified buffer?" prompt 
+and the `Enter` key at the prompt to keep the filename.
 
 Let's talk about the effects of these changes:
 
@@ -76,18 +73,19 @@ As with application containers, you can build this container with standard tools
   * `--tag summit.registry/lb1506:bootc` -> the "tag" or name of the resulting container in the format
      <registry>/<repository>:<tag>
 
-[source,dockerfile]
+[source,bash]
 ----
 podman build --file Containerfile --tag summit.registry/lb1506:bootc
 ----
 
 If the above command is succesful, the last two lines of the output should read like this:
 
-----
+....
 Successfully tagged summit.registry/lb1506:bootc
 f1bea10eb37acf2e78a9b01c6242110c1901adbaf40dbce479241c6c735c58da
-----
+....
 
+[#distribute]
 == Distributing the bootc image
 
 Now that we have a full operating system in a standard OCI container image, we can use
@@ -97,9 +95,13 @@ application container. The special sauce of `bootc` comes when a host is running
 
 We have a registry available within the lab environment we can push our image to:
 
+[source,bash]
 ----
 podman push summit.registry/lb1506:bootc
 ----
 
-You've built your first bootc image, and it's now published for use. How do we 
-get from here to a running system?
+That's all there is to designing and building a complete operating system. Start with a base, then add software and 
+related configurations. You not only have the record of that work you can put under source control in the form of the 
+Containerfile, you also have the binary image stored and versioned in the registry.
+
+You've built your first bootc image, and it's now published for use. How do we get from here to a running system?

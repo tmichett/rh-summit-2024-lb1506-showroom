@@ -1,7 +1,10 @@
 = Deploy a virtual machine with bootc image
 
 In this lab, you will build a `qcow2` disk image from the bootc image and then launch
-a virtual machine using it. `qcow2` is a standard file format used by the Linux virtualization system.
+a virtual machine from it. `qcow2` is a standard file format used by the Linux virtualization system.
+
+NOTE: This exercise includes both a make command and the commands executed by that make target. You do not need to 
+execute both.
 
 [#config]
 == Create the config for building the virtual machine image
@@ -34,12 +37,17 @@ cat ~/.ssh/id_rsa.pub
 
 The output should look something like this (Example):
 
-----
+....
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAuXnpoluye+KM+9tvIAdHf+F0IHh+K73tlcjEG8LJRB lab-user@hypervisor
-----
+....
 
 You can now create a file called `config-qcow2.json` with the following contents, replacing "SSHKEY" 
 in the `key` field with the contents of `~/.ssh/id_rsa.pub` from your system:
+
+[source,bash]
+----
+nano config-qcow2.json
+----
 
 [source,json]
 ----
@@ -68,15 +76,17 @@ NOTE: For your convenience, a config file has already been generated with the ss
 you can just use that with `cp config/config-qcow2.json config-qcow2.json`.
 
 [#create]
-== Create the virtual machine image
+== Create the disk image
 
 First, you want to make sure the bootc image is available to the local registry:
 
 [source,bash]
 ----
 skopeo inspect docker://summit.registry/lb1506:bootc | jq '.Digest'
-"sha256:655721ff613ee766a4126cb5e0d5ae81598e1b0c3bcf7017c36c4d72cb092fe9"
 ----
+....
+"sha256:655721ff613ee766a4126cb5e0d5ae81598e1b0c3bcf7017c36c4d72cb092fe9"
+....
 
 To convert from an OCI image to a disk image, we have a special version of image builder that has support for `bootc`. This 
 `bootc-image-builder` itself runs as a container, and as a result needs addtional Capabilities and to be run as `root`.
@@ -120,24 +130,24 @@ ls -lah qcow2/disk.qcow2
 
 The output should be similar to:
 
-[source]
-----
+....
 -rw-r--r--. 1 root root 945M May  2 06:10 qcow2/disk.qcow2
-----
+....
 
 [#create-vm]
 == Create the virtual machine
 
 The creation of virtual machines is out of scope for this lab, so we have provided a convenience command in the Makeile.
 We've detailed the commnds being run so you can follow along with what is happening. If you like, feel free to run the 
-commands on your own instead of using the `make` target.  
+commands on your own instead of using the `make` target. The core of the `virt-install` command used is `--import` which 
+skips the install process and creates the VM based on the provided disk image.
 
 [source,bash]
 ----
 make vm-qcow
 ----
 
-*For reference*, commands executed in the Makefile are:
+*For reference*, commands executed in the Makefile and displayed in the terminal are:
 
 [source,bash]
 ----
@@ -157,22 +167,21 @@ virsh --connect qemu:///system start qcow
 
 If `make vm-qcow` was successful, you should see the final line of output like this:
 
-[source,bash]
-----
+....
 Domain 'qcow' started
-
-----
+....
 
 Check to make sure the virtual machine running:
 
 [source,bash]
 ----
 virsh --connect qemu:///system list
-
+----
+....
  Id   Name                State
 ------------------------------------
  1    qcow                running
-----
+....
 
 [#test]
 == Test and login to the virtual machine
@@ -180,21 +189,24 @@ virsh --connect qemu:///system list
 Congratulations, you are running a bootc virtual machine!  Now that the virtual machine is up 
 and running, you can see if the webserver behaves as expected.
 
+[source,bash]
 ----
 curl http://qcow-vm
 ----
 
-And the results should be the "Hello Red Hat" string defined in the Containerfile.
+And the results should be the "Hello Red Hat" string defined in the index.html.
 
 You can now login to the virtual machine.
 
+[source,bash]
 ----
 ssh lab-user@qcow-vm
 ----
 
-NOTE: If the ssh key is not automatically picked up, use the password defined in the JSON file at the beginning of this lab (by default `lb1506`).
+NOTE: If the ssh key is not automatically picked up, use the password defined in the JSON file at the beginning of this lab (by default `lb1506`). 
+This is also the password to use when prompted by `sudo`.
 
-Once you have logged in, you can inspect the bootc status (the password for `sudo` is `lb1506`):
+Once you have logged in, you can inspect the bootc status.
 
 [source,bash]
 ----
@@ -203,8 +215,7 @@ sudo bootc status
 
 The output should look similar to this:
 
-[source,yaml]
-----
+....
 apiVersion: org.containers.bootc/v1alpha1
 kind: BootcHost
 metadata:
@@ -216,7 +227,7 @@ spec:
   bootOrder: default
 status:
   staged: null
-  booted:
+  booted: <1>
     image:
       image:
         image: summit.registry/lb1506:bootc
@@ -233,15 +244,38 @@ status:
   rollback: null
   rollbackQueued: false
   type: bootcHost
-----
+....
 
-From the output of `bootc status`, find the block that starts with `booted`. This block provides information about 
-the current image in use. You can see that image is listed as `summit.registry/lb1506:bootc`.
+From the output of `bootc status`, find the block that starts with `booted`. 
+
+<1> This block provides information about the image in use. You can see that image is listed as `summit.registry/lb1506:bootc`.
 
 You can explore the virtual machine before moving on to the next section:
 
   * `systemctl status httpd` -> see the `httpd` service we have enabled in the Containerfile
   * `cat /var/www/html/index.html` -> see the index.html file we have created in the Containerfile
+
+Our services are running, but how can we tell that we are on system and not running a container? First, `bootc` can tell you directly if it's being run 
+on an image mode host or not in the `bootc status` output. It will be all `null` values if run on a non-bootc enabled host. 
+
+For other ways, we can look at how the system was started and some of the characteristics that will change, like SELinux context.
+
+Let's look at kernel command line as well as PID1 in the `/proc` filesystem and see what runtime info we have.
+
+[source,bash]
+----
+ cat /proc/cmdline # <1> 
+ cat /proc/1/cgroup # <2> 
+ cat /proc/1/attr/current # <3>
+----
+
+We can see in the kernel command line some clear ties to an `ostree` partition, and our PID1 details shows systemd running with init scope from 
+the cgroup hierarchy and SELinux context. We'll look at the container output in a later exercise, but the SELinux context would differ.
+
+<1> `BOOT_IMAGE=(hd0,gpt3)/boot/ostree/default-6fe9dddacaf5c3232ba2332010aa7442e0a6d0e3f455b7572b047cc2284c3f2f/vmlinuz-5.14.0-427.26.1.el9_4.x86_64 root=UUID=5425bac2-bfc2-457d-93f8-ae7d3bf14d6d rw boot=UUID=9b9c7b0a-61c6-4a66-ade5-8c6690f1efa7 rw console=tty0 console=ttyS0 ostree=/ostree/boot.1/default/6fe9dddacaf5c3232ba2332010aa7442e0a6d0e3f455b7572b047cc2284c3f2f/0`
+<2> `0::/init.scope`
+<3> `system_u:system_r:init_t:s0`
+
 
 Before proceeding, make sure you have logged out of the virtual machine:
 
