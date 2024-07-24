@@ -215,7 +215,8 @@ sudo bootc status
 
 The output should look similar to this:
 
-....
+[source,yaml]
+----
 apiVersion: org.containers.bootc/v1alpha1
 kind: BootcHost
 metadata:
@@ -244,7 +245,7 @@ status:
   rollback: null
   rollbackQueued: false
   type: bootcHost
-....
+----
 
 From the output of `bootc status`, find the block that starts with `booted`. 
 
