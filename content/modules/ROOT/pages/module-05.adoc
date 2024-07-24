@@ -24,7 +24,8 @@ Let's check for an available rollback option to get us back to the previous imag
 ----
 sudo bootc status
 ----
-....
+[source,yaml]
+----
 apiVersion: org.containers.bootc/v1alpha1
 kind: BootcHost
 metadata:
@@ -72,7 +73,7 @@ status:
       deploySerial: 0
   rollbackQueued: false
   type: bootcHost
-....
+----
 
 Looking at the status output, we can see there's a section marked `rollback`. There are at most 3 images 
 available on disk at any one time: 
@@ -159,7 +160,9 @@ the default package contents to a new location in `/usr` then update the Apache
 configuration to serve pages from this new directory. We've also changed the echo line 
 to create the index.html in the new location.
 
-Rebuild the image with our new configuration and index page:
+Rebuild the image with our new configuration and index page. Since this is a rebuild, podman will reuse the 
+existing layers if there are no changes. This makes updates faster and take less space. Notice the push to the registry also 
+only pushes those layers that contain changes.
 
 [source,bash]
 ----

@@ -78,9 +78,7 @@ If you aren't familiar, the `ADD` directive has some extra Capabilities over the
 be very useful when dealing with standard configs, but could make the Containerfile a little opaque if 
 folks are unfamilar with the syntax.
 
-We rebuild the image with our updates the same way we originally built it. Since this is a rebuild, podman will reuse the 
-existing layers if there are no changes. This makes updates faster and take less space. Notice the push to the registry also 
-only pushes those layers that contain changes.
+We rebuild the image with our updates the same way we originally built it. 
 
 [source,bash]
 ----
@@ -142,7 +140,8 @@ sudo bootc status
 
 The output should look like:
 
-....
+[source,yaml]
+----
 apiVersion: org.containers.bootc/v1alpha1
 kind: BootcHost
 metadata:
@@ -190,7 +189,7 @@ status:
   rollback: null
   rollbackQueued: false
   type: bootcHost
-....
+----
 <1> You can see the staged changes in addition to current running state of the host in `bootc status`. The SHA in the `staged` block 
 should match the Digest from the output of `bootc update`. 
 

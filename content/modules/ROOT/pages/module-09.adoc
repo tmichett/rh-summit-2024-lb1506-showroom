@@ -67,7 +67,7 @@ mkksiso --ks local.kickstart --add ${TEMPDIR}/container/ original.iso custom.iso
 [#kickstart]
 == Exploring the kickstart file
 
-The Kickstart added to the iso is in `config/local.ks` and looks like this:
+The Kickstart added to the iso is in `config/local.ks` and looks like this.
 
 ----
 text
@@ -236,7 +236,7 @@ the scope of this lab.
 
 To keep with the theme of offline usage, let's simulate updating from the local storage. We can use `skopeo` to copy images from one location to another. 
 In the embedded ISO script, it's used to copy from the registry to be included in the final image. Here, we can use it to copy from 
-the registry to the host.
+the registry to the host. We need to be sure to use `sudo` to copy into the system storage location and not the user's.
 
 [source,bash]
 ----
@@ -259,62 +259,6 @@ Queued for next boot: ostree-unverified-image:containers-storage:summit.registry
 ....
 
 At this point, the "new" installation has been prepared and will be started at next boot of the virtual machine.
-One last look at the status:
-
-[source,bash]
-----
-sudo bootc status
-----
-
-Should give the following output:
-
-[source,yaml]
-----
-apiVersion: org.containers.bootc/v1alpha1
-kind: BootcHost
-metadata:
-  name: host
-spec:
-  image:
-    image: summit.registry/lb1506:bootc
-    transport: containers-storage
-  bootOrder: default
-status:
-  staged:
-    image:
-      image:
-        image: summit.registry/lb1506:bootc
-        transport: containers-storage
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 6e468a048b5c86ed8c481040b125b442b9222c914fc12799123717eb94fc43b6
-      deploySerial: 0
-  booted:
-    image:
-      image:
-        image: /run/install/repo/container
-        transport: oci
-      version: 9.20240501.0
-      timestamp: null
-      imageDigest: sha256:0a3daed6e31c2f2917e17ea994059e1aaee0481fe16836c118c5e1d10a87365c
-    cachedUpdate: null
-    incompatible: false
-    pinned: false
-    ostree:
-      checksum: 42f36e87a9436d505b3993822b92dbf7961ad3f1a8fddf67b91746df365784f0
-      deploySerial: 0
-  rollback: null
-  rollbackQueued: false
-  type: bootcHost
-----
-
-Please take note of the `staged` section, which shows what is prepared for the next boot and the `booted` section which shows the currently
-booted status. You can see the change to the `image` in the `spec` block from the original directory path to a standard container naming convention.
 
 The last step for the change to take is to reboot the virtual machine. Before doing it, please make sure you are logged in to the
 virtual machine and not the hypervisor (the prompt should look like `[lab-user@lb1506-vm ~]$`):
