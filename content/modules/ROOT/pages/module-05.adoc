@@ -106,9 +106,10 @@ sudo bootc status | grep Queued
 ----
 
 You should see the value of `rollbackQueued` has been updated as well. This can be useful to check before restarting a sysytem.
-````
+
+....
   rollbackQueued: true
-````
+....
 
 You can also check the boot order in the `spec` block to see what has been sent to the bootloader.
 
@@ -117,9 +118,9 @@ You can also check the boot order in the `spec` block to see what has been sent 
 sudo bootc status | grep Order
 ----
 
-````
+....
   bootOrder: rollback
-````
+....
 
 After the reboot, the `rollback` image will become the booted image, and will also become the new default in the boot order.
 
