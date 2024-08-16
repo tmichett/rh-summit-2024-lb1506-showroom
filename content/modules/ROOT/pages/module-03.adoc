@@ -89,7 +89,7 @@ skopeo inspect docker://summit.registry/lb1506:bootc | jq '.Digest'
 ....
 
 To convert from an OCI image to a disk image, we have a special version of image builder that has support for `bootc`. This 
-`bootc-image-builder` itself runs as a container, and as a result needs addtional Capabilities and to be run as `root`.
+`bootc-image-builder` itself runs as a container, and as a result needs additional capabilities and to be run as `root`.
 
 Try to generate the image now:
 

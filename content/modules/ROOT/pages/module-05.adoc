@@ -71,7 +71,7 @@ status:
     ostree:
       checksum: 2d9ba2dbc14ea10d7c860bedafb19736e9d2f3a068f31f4545e5096a0369304e
       deploySerial: 0
-  rollbackQueued: false
+  rollbackQueued: false <4>
   type: bootcHost
 ----
 
@@ -81,6 +81,7 @@ available on disk at any one time:
 <1> the currently active image (`booted`)
 <2> the image that will be actived next (`staged`) 
 <3> the fallback image that we're be looking for here (`rollback`). 
+<4> there's no currently queued rollback actions
 
 Not all of these sections will have information at all times.
 
@@ -98,6 +99,29 @@ The command should return very fast and the output looks like this:
 bootfs is sufficient for calculated new size: 0 bytes
 Next boot: rollback deployment
 ....
+
+[source,bash]
+----
+sudo bootc status | grep Queued
+----
+
+You should see the value of `rollbackQueued` has been updated as well. This can be useful to check before restarting a sysytem.
+````
+  rollbackQueued: true
+````
+
+You can also check the boot order in the `spec` block to see what has been sent to the bootloader.
+
+[source,bash]
+----
+sudo bootc status | grep Order
+----
+
+````
+  bootOrder: rollback
+````
+
+After the reboot, the `rollback` image will become the booted image, and will also become the new default in the boot order.
 
 As usual, a reboot is needed to apply changes. Before doing so, please make sure you are logged in to the
 virtual machine and not the hypervisor (the prompt should look like `[lab@qcow-vm ~]$`):
