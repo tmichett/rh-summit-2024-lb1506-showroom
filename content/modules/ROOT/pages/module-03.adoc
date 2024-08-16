@@ -108,7 +108,7 @@ sudo podman run --rm --privileged \
 A brief explanation of the arguments used for `podman` and `bootc-image-buider`:
 
   * `--rm` -> do not keep the build container after execution finishes
-  * `--privileged` -> add capabilitiesrequired to build the image
+  * `--privileged` -> add capabilities required to build the image
   * `--volume` -> podman will map these local directories or files to the container
   * `registry.redhat.io/rhel9/bootc-image-builder:latest` -> the image builder container image
 
