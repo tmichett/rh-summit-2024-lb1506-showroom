@@ -148,18 +148,18 @@ Jul 24 14:40:27 qcow-vm caddy[1780]: Error: cannot listen on the TCP port: liste
 We weren't prompted for our sudo password, but it looks like our new caddy server couldn't bind to port 80 
 when it tried to start.  What's going on? The answer to both lies in the image we built from. 
 
-If you look at the original Containerfile, you'll recall we set Apache to start at boot:
-
-[source,dockerfile]
-----
-RUN systemctl enable httpd.service
-----
-
 If we check the status of Apache, we can see that it is indeed running and listening on port 80.
 
 [source,bash]
 ----
 sudo systemctl status httpd.service
+----
+
+If you look at the original Containerfile, you'll recall we set Apache to start at boot:
+
+[source,dockerfile]
+----
+RUN systemctl enable httpd.service
 ----
 
 Since local changes to /etc are kept by `bootc` when changing images, httpd stayed enabled on 

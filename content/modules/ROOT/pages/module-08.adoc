@@ -91,7 +91,7 @@ Now you can ssh into the virtual machine
 ssh lab-user@qcow-vm
 ----
 
-We can change to our new image with the embedded root credentials
+We can change to our new image with the embedded `root` credentials
 
 [source,bash]
 ----

@@ -6,7 +6,7 @@ In this lab you will learn how to evolve your containers into full fledged opera
 
 === Lab Access
 
-You can access the lab via `ssh` from a terminal on your local machine.
+You can access the lab via `ssh` from a terminal on your local machine or via the web based terminal provided. You can use the slider in the middle of the screen to resize the terminal and instruction panes.
 
 [source,sh,subs=attributes+]
 ----
